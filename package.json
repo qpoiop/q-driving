@@ -1,0 +1,34 @@
+{
+    "name": "q-drive",
+    "private": true,
+    "version": "0.0.1",
+    "type": "module",
+    "description": "free driving",
+    "author": "qpoiop",
+    "engines": {
+        "node": ">=16.14.1",
+        "pnpm": ">=8.5.1"
+    },
+    "browserslist": [
+        ">0.2%",
+        "not dead",
+        "not op_mini all"
+    ],
+    "sideEffects": [
+        "*.css",
+        "*.scss"
+    ],
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "preview": "vite preview"
+    },
+    "devDependencies": {
+        "@types/three": "^0.174.0",
+        "typescript": "~5.7.2",
+        "vite": "^6.2.0"
+    },
+    "dependencies": {
+        "three": "^0.174.0"
+    }
+}
