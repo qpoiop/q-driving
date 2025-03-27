@@ -11,6 +11,10 @@ export class Car {
     private readonly steeringFriction = 0.9
     private readonly moveSpeed = 0.1
 
+    private wheels: THREE.Object3D[] = []
+    private prevPosition = new THREE.Vector3()
+    private currentSpeed = 0
+
     constructor(private scene: THREE.Scene, private input: InputSystem) {
         this.loadModel()
     }
@@ -18,9 +22,19 @@ export class Car {
     private loadModel() {
         gltfLoader.load("/assets/models/car.glb", gltf => {
             this.mesh = gltf.scene
-            this.mesh.scale.set(1, 1, 1)
+            this.mesh.scale.set(2, 2, 2)
             this.mesh.position.set(0, 0, 0)
             this.scene.add(this.mesh)
+
+            // 바퀴 노드 자동 탐색
+            this.mesh.traverse(child => {
+                if (child.name.toLowerCase().includes("wheel")) {
+                    this.wheels.push(child)
+                }
+            })
+
+            // 초기 위치 저장
+            this.prevPosition.copy(this.mesh.position)
         })
     }
 
@@ -42,11 +56,23 @@ export class Car {
         this.mesh.rotation.y += this.steeringAngle
 
         // 이동 입력
+        const velocity = new THREE.Vector3()
         if (this.input.isKeyPressed("w") || this.input.isKeyPressed("arrowup")) {
-            this.mesh.position.add(forward.clone().multiplyScalar(this.moveSpeed))
+            velocity.add(forward.clone().multiplyScalar(this.moveSpeed))
         }
         if (this.input.isKeyPressed("s") || this.input.isKeyPressed("arrowdown")) {
-            this.mesh.position.add(forward.clone().multiplyScalar(-this.moveSpeed))
+            velocity.add(forward.clone().multiplyScalar(-this.moveSpeed))
+        }
+        this.mesh.position.add(velocity)
+
+        // 속도 계산
+        const distance = this.mesh.position.distanceTo(this.prevPosition)
+        this.currentSpeed = distance // 단순한 프레임별 거리
+        this.prevPosition.copy(this.mesh.position)
+
+        // 바퀴 회전 (Z축 기준)
+        for (const wheel of this.wheels) {
+            wheel.rotateX(this.currentSpeed * 10) // 속도에 비례한 회전
         }
     }
 
