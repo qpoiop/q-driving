@@ -1,10 +1,8 @@
 import * as THREE from "three"
 import { InputSystem } from "./systems/InputSystem"
 import { Car } from "./entities/Car"
-
-import { PMREMGenerator } from "three"
 import { Terrain } from "./entities/Terrain"
-import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader.js"
+import { createSky } from "./scene/Sky"
 
 export class App {
     private scene: THREE.Scene
@@ -16,38 +14,25 @@ export class App {
 
     constructor(private container: HTMLElement) {
         this.scene = new THREE.Scene()
-        this.scene.background = new THREE.Color(0x202020)
 
         this.camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000)
-        this.camera.position.set(0, 6, 10)
+        this.camera.position.set(0, 4, 8)
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true })
         this.renderer.setSize(container.clientWidth, container.clientHeight)
         this.renderer.setPixelRatio(window.devicePixelRatio)
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+        this.renderer.toneMappingExposure = 1.0
         container.appendChild(this.renderer.domElement)
 
-        const pmrem = new PMREMGenerator(this.renderer)
-        pmrem.compileEquirectangularShader()
+        createSky(this.renderer, this.scene)
 
-        new RGBELoader().load("/assets/sky/goegap.hdr", hdrTexture => {
-            const envMap = pmrem.fromEquirectangular(hdrTexture).texture
-            this.scene.environment = envMap
-            this.scene.background = envMap
-
-            hdrTexture.dispose()
-            pmrem.dispose()
-        })
-
-        const grid = new THREE.GridHelper(1000, 100)
-        this.scene.add(grid)
-
-        const ambient = new THREE.AmbientLight(0xffffff, 0.4)
-        this.scene.add(ambient)
+        this.scene.add(new THREE.AmbientLight(0xffffff, 0.4))
 
         const light = new THREE.DirectionalLight(0xffffff, 1)
         light.position.set(10, 10, 10)
         light.target.position.set(0, 0, 0)
-
         this.scene.add(light)
         this.scene.add(light.target)
 
