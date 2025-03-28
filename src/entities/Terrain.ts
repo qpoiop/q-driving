@@ -51,5 +51,6 @@ export class Terrain {
 
         this.mesh = new THREE.Mesh(geometry, material)
         this.mesh.receiveShadow = true
+        this.mesh.name = "terrain"
     }
 }

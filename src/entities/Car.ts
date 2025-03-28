@@ -1,6 +1,7 @@
 import * as THREE from "three"
 import { gltfLoader } from "../loaders/glbfLoader"
 import { InputSystem } from "../systems/InputSystem"
+import { GroundTracker } from "../systems/GroundTracker"
 
 export class Car {
     public mesh: THREE.Object3D | null = null
@@ -11,6 +12,7 @@ export class Car {
     private readonly steeringFriction = 0.9
     private readonly moveSpeed = 0.1
 
+    private groundTracker: GroundTracker | null = null
     private wheels: THREE.Object3D[] = []
     private prevPosition = new THREE.Vector3()
     private currentSpeed = 0
@@ -35,6 +37,12 @@ export class Car {
 
             // 초기 위치 저장
             this.prevPosition.copy(this.mesh.position)
+            this.mesh.name = "car" // 디버깅용
+
+            const terrain = this.scene.getObjectByName("terrain")
+            if (terrain) {
+                this.groundTracker = new GroundTracker(terrain)
+            }
         })
     }
 
@@ -73,6 +81,11 @@ export class Car {
         // 바퀴 회전 (Z축 기준)
         for (const wheel of this.wheels) {
             wheel.rotateX(this.currentSpeed * 10) // 속도에 비례한 회전
+        }
+
+        if (this.groundTracker) {
+            const y = this.groundTracker.getHeight(this.mesh.position)
+            this.mesh.position.y = y + 0.5
         }
     }
 
