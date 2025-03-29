@@ -1,45 +1,50 @@
 import * as THREE from "three"
 import { createNoise2D } from "simplex-noise"
 
+interface TerrainOptions {
+    size: number
+    resolution: number
+    heightScale: number
+    flattenWidth: number
+    textureRepeat: number
+}
+
 export class Terrain {
     public mesh: THREE.Mesh
 
-    constructor() {
+    constructor(options: TerrainOptions) {
+        const { size, resolution, heightScale, flattenWidth, textureRepeat } = options
+
         const loader = new THREE.TextureLoader()
         const noise2D = createNoise2D()
 
-        // 텍스처 로드
-        const albedo = loader.load("/assets/textures/ground/default_ground_color.jpg")
-        const normal = loader.load("/assets/textures/ground/default_ground_normal.jpg")
-        const roughness = loader.load("/assets/textures/ground/default_ground_roughness.jpg")
-        const aoMap = loader.load("/assets/textures/ground/default_ground_ambient_occlusion.jpg")
+        const albedo = loader.load("/assets/textures/ground/4k/ground008_color.jpg")
+        const normal = loader.load("/assets/textures/ground/4k/ground008_normal.jpg")
+        const roughness = loader.load("/assets/textures/ground/4k/ground008_roughness.jpg")
+        const aoMap = loader.load("/assets/textures/ground/4k/ground008_ao.jpg")
 
         ;[albedo, normal, roughness, aoMap].forEach(tex => {
             tex.wrapS = tex.wrapT = THREE.RepeatWrapping
-            tex.repeat.set(200, 200)
+            tex.repeat.set(textureRepeat, textureRepeat)
         })
 
-        // ✅ 평면 지형 생성 + 고해상도 (곡률 자연스러움)
-        const geometry = new THREE.PlaneGeometry(500, 500, 256, 256)
+        const geometry = new THREE.PlaneGeometry(size, size, resolution, resolution)
         geometry.rotateX(-Math.PI / 2)
 
-        // ✅ Perlin noise 적용 + 중앙 도로 평탄화
         const position = geometry.attributes.position
         for (let i = 0; i < position.count; i++) {
             const x = position.getX(i)
             const z = position.getZ(i)
 
-            let y = noise2D(x * 0.02, z * 0.02) * 5
-
-            if (Math.abs(x) < 10) {
-                y *= 0.2 // ✅ 중앙 20m 폭 도로 평탄화
+            let y = noise2D(x * 0.01, z * 0.01) * heightScale
+            if (Math.abs(x) < flattenWidth) {
+                y *= 0.2
             }
 
             position.setY(i, y)
         }
         position.needsUpdate = true
 
-        // uv2 for aoMap
         geometry.setAttribute("uv2", new THREE.BufferAttribute(geometry.attributes.uv.array, 2))
 
         const material = new THREE.MeshStandardMaterial({
@@ -51,6 +56,5 @@ export class Terrain {
 
         this.mesh = new THREE.Mesh(geometry, material)
         this.mesh.receiveShadow = true
-        this.mesh.name = "terrain"
     }
 }

@@ -1,24 +1,20 @@
-// systems/GroundTracker.ts
 import * as THREE from "three"
 
 export class GroundTracker {
+    private position = new THREE.Vector3()
     private raycaster = new THREE.Raycaster()
-    private down = new THREE.Vector3(0, -1, 0)
-    private tempOrigin = new THREE.Vector3()
 
-    constructor(private terrain: THREE.Object3D) {}
+    constructor(private target: THREE.Mesh) {
+        this.raycaster.far = 100
+    }
 
-    getHeight(position: THREE.Vector3): number {
-        this.tempOrigin.copy(position)
-        this.tempOrigin.y += 10
+    getHeight(worldPos: THREE.Vector3): number {
+        this.position.copy(worldPos)
+        this.position.y = 100
 
-        this.raycaster.set(this.tempOrigin, this.down)
-        const intersects = this.raycaster.intersectObject(this.terrain, false)
+        this.raycaster.set(this.position, new THREE.Vector3(0, -1, 0))
 
-        if (intersects.length > 0) {
-            return intersects[0].point.y
-        } else {
-            return position.y
-        }
+        const hit = this.raycaster.intersectObject(this.target, false)[0]
+        return hit ? hit.point.y : 0
     }
 }
