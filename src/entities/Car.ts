@@ -1,6 +1,7 @@
 import * as THREE from "three"
 import { gltfLoader } from "../loaders/glbfLoader"
 import { InputSystem } from "../systems/InputSystem"
+import { GroundTracker } from "../systems/GroundTracker"
 
 export class Car {
     public mesh: THREE.Object3D | null = null
@@ -14,13 +15,16 @@ export class Car {
     private prevPosition = new THREE.Vector3()
     private currentSpeed = 0
 
+    private readonly forward = new THREE.Vector3()
+    private readonly velocity = new THREE.Vector3()
+
     private initial = {
         position: new THREE.Vector3(0, 0.5, -25),
-        rotation: new THREE.Euler(0, Math.PI, 0), // Y축 회전으로 초기 방향 설정
+        rotation: new THREE.Euler(0, Math.PI, 0),
         scale: new THREE.Vector3(1.8, 1.8, 1.8),
     }
 
-    constructor(private scene: THREE.Scene, private input: InputSystem) {}
+    constructor(private scene: THREE.Scene, private input: InputSystem, private tracker?: GroundTracker) {}
 
     public setInitial(config: Partial<{ position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 }>) {
         if (config.position) this.initial.position.copy(config.position)
@@ -30,22 +34,26 @@ export class Car {
 
     public load() {
         gltfLoader.load("/assets/models/car/scene.gltf", gltf => {
-            this.mesh = gltf.scene
-            this.mesh.scale.copy(this.initial.scale)
-            this.mesh.position.copy(this.initial.position)
-            this.mesh.rotation.copy(this.initial.rotation)
+            const model = gltf.scene
+            model.scale.copy(this.initial.scale)
+            model.position.copy(this.initial.position)
+            model.rotation.copy(this.initial.rotation)
 
-            this.scene.add(this.mesh)
-            this.prevPosition.copy(this.mesh.position)
+            this.scene.add(model)
+            this.mesh = model
+            this.prevPosition.copy(model.position)
         })
     }
 
     public update() {
-        if (!this.mesh) return
+        const mesh = this.mesh
+        if (!mesh) return
 
-        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.mesh.quaternion)
+        // 방향 벡터 초기화
+        this.forward.set(0, 0, 1).applyQuaternion(mesh.quaternion)
+        this.velocity.set(0, 0, 0)
 
-        // 조향 조절
+        // 입력에 따라 회전 처리
         if (this.input.isKeyPressed("a") || this.input.isKeyPressed("arrowleft")) {
             this.steeringAngle += this.steeringAccel
         } else if (this.input.isKeyPressed("d") || this.input.isKeyPressed("arrowright")) {
@@ -55,23 +63,27 @@ export class Car {
         }
 
         this.steeringAngle = THREE.MathUtils.clamp(this.steeringAngle, -this.maxSteering, this.maxSteering)
-        this.mesh.rotation.y += this.steeringAngle
+        mesh.rotation.y += this.steeringAngle
 
-        // 이동
-        const velocity = new THREE.Vector3()
+        // 이동 처리
         if (this.input.isKeyPressed("w") || this.input.isKeyPressed("arrowup")) {
-            velocity.add(forward.clone().multiplyScalar(this.moveSpeed))
+            this.velocity.add(this.forward.clone().multiplyScalar(this.moveSpeed))
         }
         if (this.input.isKeyPressed("s") || this.input.isKeyPressed("arrowdown")) {
-            velocity.add(forward.clone().multiplyScalar(-this.moveSpeed)) // 후진
+            this.velocity.add(this.forward.clone().multiplyScalar(-this.moveSpeed))
         }
 
-        this.mesh.position.add(velocity)
+        mesh.position.add(this.velocity)
+
+        // 지형 높이 반영
+        if (this.tracker) {
+            const terrainY = this.tracker.getHeightAt(mesh.position)
+            mesh.position.y = terrainY + 0.2
+        }
 
         // 속도 계산
-        const distance = this.mesh.position.distanceTo(this.prevPosition)
-        this.currentSpeed = distance
-        this.prevPosition.copy(this.mesh.position)
+        this.currentSpeed = mesh.position.distanceTo(this.prevPosition)
+        this.prevPosition.copy(mesh.position)
     }
 
     public get position(): THREE.Vector3 {

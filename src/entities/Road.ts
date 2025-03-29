@@ -36,7 +36,7 @@ export class Road {
             const x = position.getX(i)
             const z = position.getZ(i)
 
-            const y = this.tracker.getHeight(new THREE.Vector3(x, 0, z)) + offsetY
+            const y = this.tracker.getHeightAt(new THREE.Vector3(x, 0, z)) + offsetY
             position.setY(i, y)
         }
         position.needsUpdate = true

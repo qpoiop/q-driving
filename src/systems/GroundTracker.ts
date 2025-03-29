@@ -1,20 +1,16 @@
 import * as THREE from "three"
 
 export class GroundTracker {
-    private position = new THREE.Vector3()
-    private raycaster = new THREE.Raycaster()
+    constructor(private terrainMesh: THREE.Mesh) {}
 
-    constructor(private target: THREE.Mesh) {
-        this.raycaster.far = 100
-    }
+    // 차량 또는 도로의 Y 좌표를 지형에 맞춰 보정
+    public getHeightAt(position: THREE.Vector3): number {
+        const raycaster = new THREE.Raycaster(
+            new THREE.Vector3(position.x, 100, position.z), // 위에서 아래로 쏘는 레이
+            new THREE.Vector3(0, -1, 0),
+        )
 
-    getHeight(worldPos: THREE.Vector3): number {
-        this.position.copy(worldPos)
-        this.position.y = 100
-
-        this.raycaster.set(this.position, new THREE.Vector3(0, -1, 0))
-
-        const hit = this.raycaster.intersectObject(this.target, false)[0]
-        return hit ? hit.point.y : 0
+        const intersects = raycaster.intersectObject(this.terrainMesh, true)
+        return intersects.length > 0 ? intersects[0].point.y : 0
     }
 }

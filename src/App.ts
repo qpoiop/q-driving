@@ -6,6 +6,7 @@ import { InputSystem } from "./systems/InputSystem"
 import { CenterLine } from "./entities/CenterLine"
 import { RoadPath } from "./entities/RoadPath"
 import { RoadMesh } from "./entities/RoadMesh"
+import { GroundTracker } from "./systems/GroundTracker"
 
 export class App {
     private scene: THREE.Scene
@@ -58,10 +59,13 @@ export class App {
         this.scene.add(centerLine.meshGroup)
 
         // Car
+        const tracker = new GroundTracker(terrain.mesh)
+        this.car = new Car(this.scene, this.input, tracker)
+
         this.car = new Car(this.scene, this.input)
         this.car.setInitial({
             position: new THREE.Vector3(0, 0.5, -25),
-            rotation: new THREE.Euler(0, Math.PI, 0), // 카메라 반대 방향으로 시작
+            rotation: new THREE.Euler(0, 0, 0),
             scale: new THREE.Vector3(1.8, 1.8, 1.8),
         })
 
@@ -76,9 +80,10 @@ export class App {
 
         this.car.update()
 
-        // 카메라 위치 업데이트
         const targetPos = this.car.position
-        const offset = new THREE.Vector3(0, 3, 12).applyQuaternion(this.car.quaternion)
+
+        // 카메라 오프셋: 차량 뒤쪽에 고정된 위치
+        const offset = new THREE.Vector3(0, 5, -10).applyQuaternion(this.car.quaternion)
         const cameraTarget = new THREE.Vector3().copy(targetPos).add(offset)
 
         const lookAt = targetPos.clone()
