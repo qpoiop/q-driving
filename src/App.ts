@@ -61,7 +61,7 @@ export class App {
         this.car = new Car(this.scene, this.input)
         this.car.setInitial({
             position: new THREE.Vector3(0, 0.5, -25),
-            rotation: new THREE.Euler(0, 0, 0),
+            rotation: new THREE.Euler(0, Math.PI, 0), // 카메라 반대 방향으로 시작
             scale: new THREE.Vector3(1.8, 1.8, 1.8),
         })
 
@@ -76,6 +76,7 @@ export class App {
 
         this.car.update()
 
+        // 카메라 위치 업데이트
         const targetPos = this.car.position
         const offset = new THREE.Vector3(0, 3, 12).applyQuaternion(this.car.quaternion)
         const cameraTarget = new THREE.Vector3().copy(targetPos).add(offset)

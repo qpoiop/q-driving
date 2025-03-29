@@ -1,4 +1,3 @@
-// src/entities/Car.ts
 import * as THREE from "three"
 import { gltfLoader } from "../loaders/glbfLoader"
 import { InputSystem } from "../systems/InputSystem"
@@ -17,7 +16,7 @@ export class Car {
 
     private initial = {
         position: new THREE.Vector3(0, 0.5, -25),
-        rotation: new THREE.Euler(0, Math.PI, 0),
+        rotation: new THREE.Euler(0, Math.PI, 0), // Y축 회전으로 초기 방향 설정
         scale: new THREE.Vector3(1.8, 1.8, 1.8),
     }
 
@@ -34,7 +33,8 @@ export class Car {
             this.mesh = gltf.scene
             this.mesh.scale.copy(this.initial.scale)
             this.mesh.position.copy(this.initial.position)
-            this.mesh.rotation.copy(this.initial.rotation) // 초기 방향 적용
+            this.mesh.rotation.copy(this.initial.rotation)
+
             this.scene.add(this.mesh)
             this.prevPosition.copy(this.mesh.position)
         })
@@ -45,6 +45,7 @@ export class Car {
 
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.mesh.quaternion)
 
+        // 조향 조절
         if (this.input.isKeyPressed("a") || this.input.isKeyPressed("arrowleft")) {
             this.steeringAngle += this.steeringAccel
         } else if (this.input.isKeyPressed("d") || this.input.isKeyPressed("arrowright")) {
@@ -54,24 +55,22 @@ export class Car {
         }
 
         this.steeringAngle = THREE.MathUtils.clamp(this.steeringAngle, -this.maxSteering, this.maxSteering)
+        this.mesh.rotation.y += this.steeringAngle
 
+        // 이동
         const velocity = new THREE.Vector3()
         if (this.input.isKeyPressed("w") || this.input.isKeyPressed("arrowup")) {
             velocity.add(forward.clone().multiplyScalar(this.moveSpeed))
         }
         if (this.input.isKeyPressed("s") || this.input.isKeyPressed("arrowdown")) {
-            velocity.add(forward.clone().multiplyScalar(-this.moveSpeed))
+            velocity.add(forward.clone().multiplyScalar(-this.moveSpeed)) // 후진
         }
 
         this.mesh.position.add(velocity)
 
-        if (velocity.lengthSq() > 0) {
-            const newForward = velocity.clone().normalize()
-            const targetQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), newForward)
-            this.mesh.quaternion.slerp(targetQuat, 0.1)
-        }
-
-        this.currentSpeed = this.mesh.position.distanceTo(this.prevPosition)
+        // 속도 계산
+        const distance = this.mesh.position.distanceTo(this.prevPosition)
+        this.currentSpeed = distance
         this.prevPosition.copy(this.mesh.position)
     }
 
