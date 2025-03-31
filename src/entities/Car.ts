@@ -7,10 +7,11 @@ export class Car {
     public mesh: THREE.Object3D | null = null
 
     private steeringAngle = 0
-    private readonly maxSteering = 0.04
-    private readonly steeringAccel = 0.002
+
+    private readonly moveSpeed = 0.3 // 기존 0.1 → 0.3
+    private readonly steeringAccel = 0.01 // 기존 0.002 → 0.01
+    private readonly maxSteering = 0.08 // 기존 0.04 → 0.08
     private readonly steeringFriction = 0.9
-    private readonly moveSpeed = 0.1
 
     private prevPosition = new THREE.Vector3()
     private currentSpeed = 0

@@ -51,7 +51,6 @@ export class App {
 
         // Road
         const roadPath = new RoadPath()
-        // App.ts
         const roadMesh = new RoadMesh(roadPath, 4) // 기존 2.5 → 4 (전체 폭 8m 수준)
 
         this.scene.add(roadMesh.mesh)
