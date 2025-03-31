@@ -9,7 +9,7 @@ export class RoadMesh {
     }
 
     private createMesh(): THREE.Mesh {
-        const divisions = 200
+        const divisions = 500
         const geometry = new THREE.BufferGeometry()
 
         const positions: number[] = []
@@ -60,7 +60,7 @@ export class RoadMesh {
 
         ;[map, normal, roughness].forEach(tex => {
             tex.wrapS = tex.wrapT = THREE.RepeatWrapping
-            tex.repeat.set(1, 40)
+            tex.repeat.set(1, 40) // 기존 20 → 40으로 도로가 길어 보이게
         })
 
         // RoadMesh.ts 머티리얼 보완

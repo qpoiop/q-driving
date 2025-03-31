@@ -9,13 +9,15 @@ export class RoadPath {
     }
 
     private getDefaultPoints(): THREE.Vector3[] {
+        // RoadPath.ts → getDefaultPoints()
         return [
             new THREE.Vector3(0, 0, -100),
             new THREE.Vector3(0, 0, -50),
+            new THREE.Vector3(0, 0, -25), // 차량 시작 위치 포함
             new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, 0, 25),
             new THREE.Vector3(0, 0, 50),
             new THREE.Vector3(0, 0, 100),
-            new THREE.Vector3(0, 0, 150),
         ]
     }
 }

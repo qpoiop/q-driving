@@ -51,7 +51,8 @@ export class App {
 
         // Road
         const roadPath = new RoadPath()
-        const roadMesh = new RoadMesh(roadPath, 2.5)
+        // App.ts
+        const roadMesh = new RoadMesh(roadPath, 4) // 기존 2.5 → 4 (전체 폭 8m 수준)
 
         this.scene.add(roadMesh.mesh)
 
@@ -63,8 +64,9 @@ export class App {
         this.car = new Car(this.scene, this.input, tracker)
 
         this.car = new Car(this.scene, this.input)
+
         this.car.setInitial({
-            position: new THREE.Vector3(0, 0.5, -25),
+            position: new THREE.Vector3(0, 0.5, -25), // 위 도로와 동일한 지점
             rotation: new THREE.Euler(0, 0, 0),
             scale: new THREE.Vector3(1.8, 1.8, 1.8),
         })
