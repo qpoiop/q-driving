@@ -6,4 +6,4 @@
 
 ### inplaying captures
 
-![alt text](/public/assets/image.png)
+![alt text](/public/assets/image.png){: width="270" height="180"}

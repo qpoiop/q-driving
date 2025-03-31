@@ -4,13 +4,14 @@ import { RoadPath } from "./RoadPath"
 export class RoadMesh {
     public mesh: THREE.Mesh
 
-    constructor(private path: RoadPath, private getHeightAt: (pos: THREE.Vector3) => number, private halfWidth = 1.5, private offsetY = 0.05) {
+    constructor(private path: RoadPath, private getHeight: (pos: THREE.Vector3) => number, private halfWidth = 1.5, private offsetY = 0.05) {
         this.mesh = this.createMesh()
     }
 
     private createMesh(): THREE.Mesh {
-        const divisions = 500
+        const divisions = 400
         const geometry = new THREE.BufferGeometry()
+
         const positions: number[] = []
         const uvs: number[] = []
         const indices: number[] = []
@@ -27,11 +28,12 @@ export class RoadMesh {
             const left = point.clone().add(normal.clone().multiplyScalar(this.halfWidth))
             const right = point.clone().add(normal.clone().multiplyScalar(-this.halfWidth))
 
-            left.y = this.getHeightAt(left) + this.offsetY
-            right.y = this.getHeightAt(right) + this.offsetY
+            left.y = this.getHeight(left) + this.offsetY
+            right.y = this.getHeight(right) + this.offsetY
 
             positions.push(left.x, left.y, left.z)
             positions.push(right.x, right.y, right.z)
+
             uvs.push(0, t * 10)
             uvs.push(1, t * 10)
         }
