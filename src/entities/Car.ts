@@ -2,6 +2,7 @@ import * as THREE from "three"
 import { gltfLoader } from "../loaders/glbfLoader"
 import { InputSystem } from "../systems/InputSystem"
 import { GroundTracker } from "../systems/GroundTracker"
+import { Joystick } from "../ui/Joystick"
 
 export class Car {
     public mesh: THREE.Object3D | null = null
@@ -36,7 +37,7 @@ export class Car {
         scale: new THREE.Vector3(1.8, 1.8, 1.8),
     }
 
-    constructor(private scene: THREE.Scene, private input: InputSystem, private tracker?: GroundTracker) {}
+    constructor(private scene: THREE.Scene, private input: InputSystem, private tracker?: GroundTracker, private joystick?: Joystick) {}
 
     public setInitial(config: Partial<{ position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 }>) {
         if (config.position) this.initial.position.copy(config.position)
@@ -61,61 +62,65 @@ export class Car {
     }
 
     public update() {
-        const mesh = this.mesh
-        if (!mesh) return
+        if (!this.mesh) return
 
-        this.forward.set(0, 0, 1).applyQuaternion(mesh.quaternion)
+        this.forward.set(0, 0, 1).applyQuaternion(this.mesh.quaternion).setY(0).normalize()
         this.velocity.set(0, 0, 0)
 
-        if (this.input.isKeyPressed("a") || this.input.isKeyPressed("arrowleft")) {
-            this.steeringAngle += this.steeringAccel
-        } else if (this.input.isKeyPressed("d") || this.input.isKeyPressed("arrowright")) {
-            this.steeringAngle -= this.steeringAccel
-        } else {
-            this.steeringAngle *= this.steeringFriction
-        }
+        // 터치 기반 회전 및 가속
+        const touch = this.input.getTouchDirection()
+        const isTouch = this.input.hasTouchInput()
 
+        // Steering
+        const steer = isTouch ? -touch.x : this.input.isKeyPressed("a") ? 1 : this.input.isKeyPressed("d") ? -1 : 0
+        this.steeringAngle += steer * this.steeringAccel
+        this.steeringAngle *= this.steeringFriction
         this.steeringAngle = THREE.MathUtils.clamp(this.steeringAngle, -this.maxSteering, this.maxSteering)
-        mesh.rotation.y += this.steeringAngle
+        this.mesh.rotation.y += this.steeringAngle
 
-        if (this.input.isKeyPressed("w") || this.input.isKeyPressed("arrowup")) {
+        // update() 내 기존 steer/accel 처리 대체
+        const { x, y } = this.joystick?.getInput?.() ?? { x: 0, y: 0 }
+        this.steeringAngle += -x * this.steeringAccel
+        this.steeringAngle *= this.steeringFriction
+        this.steeringAngle = THREE.MathUtils.clamp(this.steeringAngle, -this.maxSteering, this.maxSteering)
+        this.mesh.rotation.y += this.steeringAngle
+
+        if (this.input.isKeyPressed("w") || this.input.isKeyPressed("arrowup") || y < -0.2) {
             this.acceleration += this.accelerationRate
-        } else if (this.input.isKeyPressed("s") || this.input.isKeyPressed("arrowdown")) {
+        } else if (this.input.isKeyPressed("s") || this.input.isKeyPressed("arrowdown") || y > 0.2) {
             this.acceleration -= this.brakeRate
         } else {
             this.acceleration *= this.rollingFriction * this.airResistance
         }
 
-        this.acceleration = THREE.MathUtils.clamp(this.acceleration, -this.maxSpeed, this.maxSpeed)
+        this.acceleration = THREE.MathUtils.clamp(this.acceleration, -this.maxSpeed * 0.7, this.maxSpeed) // 모바일 감속
         this.velocity.copy(this.forward).multiplyScalar(this.acceleration)
-        mesh.position.add(this.velocity)
 
-        const touchSteer = this.input.getSteeringFromTouch()
-        this.steeringAngle += touchSteer * this.steeringAccel
-
-        if (this.input.isAccelerating()) {
-            this.acceleration += this.accelerationRate
-        }
-
+        // 이동 처리
+        const nextPos = this.mesh.position.clone().add(this.velocity)
+        let terrainY = 0
         if (this.tracker) {
-            const terrainY = this.tracker.getHeightAt(mesh.position)
-            mesh.position.y = terrainY + 0.2
+            terrainY = this.tracker.getHeightAt(nextPos)
+        }
+        nextPos.y = THREE.MathUtils.lerp(this.mesh.position.y, terrainY + 0.2, 0.2)
+        this.mesh.position.copy(nextPos)
 
-            const rawNormal = this.tracker.getNormalAt(mesh.position)
+        // 노멀 기반 회전 보정
+        if (this.tracker) {
+            const rawNormal = this.tracker.getNormalAt(this.mesh.position)
             this.smoothedNormal.lerp(rawNormal, 0.1)
 
-            const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(mesh.quaternion)
+            const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.mesh.quaternion)
             const right = new THREE.Vector3().crossVectors(this.smoothedNormal, forward).normalize()
             const correctedForward = new THREE.Vector3().crossVectors(right, this.smoothedNormal).normalize()
 
             const m = new THREE.Matrix4().makeBasis(right, this.smoothedNormal, correctedForward)
             const q = new THREE.Quaternion().setFromRotationMatrix(m)
-
-            mesh.quaternion.slerp(q, 0.1)
+            this.mesh.quaternion.slerp(q, 0.1)
         }
 
-        this.currentSpeed = mesh.position.distanceTo(this.prevPosition)
-        this.prevPosition.copy(mesh.position)
+        this.currentSpeed = this.mesh.position.distanceTo(this.prevPosition)
+        this.prevPosition.copy(this.mesh.position)
     }
 
     // 전조등 설정 함수

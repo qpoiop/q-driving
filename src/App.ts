@@ -8,6 +8,7 @@ import { RoadPath } from "./entities/RoadPath"
 import { RoadMesh } from "./entities/RoadMesh"
 import { GroundTracker } from "./systems/GroundTracker"
 import { Hud } from "./ui/Hud"
+import { Joystick } from "./ui/Joystick"
 
 let isNight = false
 
@@ -62,7 +63,9 @@ export class App {
         const centerLine = new CenterLine(roadPath)
         this.scene.add(centerLine.meshGroup)
 
-        this.car = new Car(this.scene, this.input, tracker)
+        const joystick = new Joystick()
+        this.car = new Car(this.scene, this.input, tracker, joystick)
+
         this.car.setInitial({
             position: new THREE.Vector3(0, 0.5, -25),
             rotation: new THREE.Euler(0, 0, 0),
