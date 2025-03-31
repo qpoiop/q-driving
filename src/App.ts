@@ -7,6 +7,7 @@ import { CenterLine } from "./entities/CenterLine"
 import { RoadPath } from "./entities/RoadPath"
 import { RoadMesh } from "./entities/RoadMesh"
 import { GroundTracker } from "./systems/GroundTracker"
+import { Hud } from "./ui/Hud"
 
 export class App {
     private scene: THREE.Scene
@@ -15,6 +16,7 @@ export class App {
 
     private input = new InputSystem()
     private car: Car
+    private hud: Hud
 
     constructor(private container: HTMLElement) {
         this.scene = new THREE.Scene()
@@ -61,9 +63,6 @@ export class App {
         // Car
         const tracker = new GroundTracker(terrain.mesh)
         this.car = new Car(this.scene, this.input, tracker)
-
-        this.car = new Car(this.scene, this.input)
-
         this.car.setInitial({
             position: new THREE.Vector3(0, 0.5, -25), // 위 도로와 동일한 지점
             rotation: new THREE.Euler(0, 0, 0),
@@ -71,6 +70,7 @@ export class App {
         })
 
         this.car.load()
+        this.hud = new Hud()
 
         this.animate()
         this.addResizeListener()
@@ -80,6 +80,7 @@ export class App {
         requestAnimationFrame(this.animate)
 
         this.car.update()
+        this.hud.update(this.car.getSpeed?.() ?? 0)
 
         const targetPos = this.car.position
 
