@@ -68,9 +68,11 @@ export class RoadMesh {
             map,
             normalMap: normal,
             roughnessMap: roughness,
-            roughness: 1,
-            metalness: 0,
-            envMapIntensity: 0.5,
+            roughness: 0.8, // 기본 도로 질감 유지
+            metalness: 0.1, // 살짝 반사감 부여
+            emissive: new THREE.Color(0x080808), // 약한 자발광 (밤 모드 대비)
+            emissiveIntensity: 0.8,
+            envMapIntensity: 0.5, // 환경광 영향 약간
             side: THREE.DoubleSide,
         })
 

@@ -8,7 +8,6 @@ export class Car {
 
     private steeringAngle = 0
 
-    // 가속도 기반 속도 처리
     private acceleration = 0
     private readonly maxSpeed = 1.2
     private readonly accelerationRate = 0.02
@@ -24,10 +23,12 @@ export class Car {
 
     private readonly forward = new THREE.Vector3()
     private readonly velocity = new THREE.Vector3()
-    private readonly smoothedNormal = new THREE.Vector3(0, 1, 0) // 추가: 노멀 보정값
+    private readonly smoothedNormal = new THREE.Vector3(0, 1, 0)
 
-    private readonly rollingFriction = 0.98 // 관성 유지하면서 점차 감속
-    private readonly airResistance = 0.995 // 공기 저항
+    private readonly rollingFriction = 0.98
+    private readonly airResistance = 0.995
+
+    private headLights: THREE.SpotLight[] = []
 
     private initial = {
         position: new THREE.Vector3(0, 0.5, -25),
@@ -53,6 +54,9 @@ export class Car {
             this.scene.add(model)
             this.mesh = model
             this.prevPosition.copy(model.position)
+
+            this.setupHeadlights()
+            this.toggleLights(false)
         })
     }
 
@@ -60,11 +64,9 @@ export class Car {
         const mesh = this.mesh
         if (!mesh) return
 
-        // 방향 벡터 초기화
         this.forward.set(0, 0, 1).applyQuaternion(mesh.quaternion)
         this.velocity.set(0, 0, 0)
 
-        // 입력에 따라 회전 처리
         if (this.input.isKeyPressed("a") || this.input.isKeyPressed("arrowleft")) {
             this.steeringAngle += this.steeringAccel
         } else if (this.input.isKeyPressed("d") || this.input.isKeyPressed("arrowright")) {
@@ -76,7 +78,6 @@ export class Car {
         this.steeringAngle = THREE.MathUtils.clamp(this.steeringAngle, -this.maxSteering, this.maxSteering)
         mesh.rotation.y += this.steeringAngle
 
-        // 가속도 처리
         if (this.input.isKeyPressed("w") || this.input.isKeyPressed("arrowup")) {
             this.acceleration += this.accelerationRate
         } else if (this.input.isKeyPressed("s") || this.input.isKeyPressed("arrowdown")) {
@@ -89,14 +90,12 @@ export class Car {
         this.velocity.copy(this.forward).multiplyScalar(this.acceleration)
         mesh.position.add(this.velocity)
 
-        // 지형 높이 및 노멀 반영
         if (this.tracker) {
             const terrainY = this.tracker.getHeightAt(mesh.position)
             mesh.position.y = terrainY + 0.2
 
-            // 노멀 보정 (지면 방향에 차량 방향 맞추기)
             const rawNormal = this.tracker.getNormalAt(mesh.position)
-            this.smoothedNormal.lerp(rawNormal, 0.15) // 이전보다 느리게 따라감
+            this.smoothedNormal.lerp(rawNormal, 0.1)
 
             const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(mesh.quaternion)
             const right = new THREE.Vector3().crossVectors(this.smoothedNormal, forward).normalize()
@@ -108,9 +107,38 @@ export class Car {
             mesh.quaternion.slerp(q, 0.1)
         }
 
-        // 속도 계산
         this.currentSpeed = mesh.position.distanceTo(this.prevPosition)
         this.prevPosition.copy(mesh.position)
+    }
+
+    // 전조등 설정 함수
+    private setupHeadlights() {
+        const lightL = new THREE.SpotLight(0xffffff, 5, 100, Math.PI / 10, 0.5)
+        const lightR = new THREE.SpotLight(0xffffff, 5, 100, Math.PI / 10, 0.5)
+
+        lightL.castShadow = true
+        lightR.castShadow = true
+
+        // 광원 위치 (차량 앞 범퍼 부근)
+        lightL.position.set(-0.6, 0.3, 1.4)
+        lightR.position.set(0.6, 0.3, 1.4)
+
+        // 빛이 향하는 방향 (앞으로 멀리)
+        const targetL = new THREE.Object3D()
+        const targetR = new THREE.Object3D()
+        targetL.position.set(-0.6, 0.1, 10)
+        targetR.position.set(0.6, 0.1, 10)
+
+        this.mesh!.add(lightL, lightR, targetL, targetR)
+        lightL.target = targetL
+        lightR.target = targetR
+
+        this.headLights.push(lightL, lightR)
+    }
+
+    // 불빛 켜고 끄는 함수
+    public toggleLights(on: boolean) {
+        this.headLights.forEach(light => (light.visible = on))
     }
 
     public get position(): THREE.Vector3 {

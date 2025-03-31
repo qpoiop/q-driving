@@ -10,7 +10,7 @@ export class Hud {
         this.container.style.bottom = "20px"
         this.container.style.left = "20px"
         this.container.style.color = "white"
-        this.container.style.fontSize = "20px"
+        this.container.style.fontSize = "12px"
         this.container.style.fontFamily = "monospace"
         this.container.style.pointerEvents = "none"
 
@@ -26,8 +26,8 @@ export class Hud {
     }
 
     public update(speed: number, gear: string = "D", mode: string = "DAY") {
-        this.speedEl.innerText = `속도: ${(speed * 50).toFixed(1)} km/h`
-        this.gearEl.innerText = `기어: ${gear}`
-        this.modeEl.innerText = `모드: ${mode}`
+        this.speedEl.innerText = `Speed: ${(speed * 50).toFixed(1)} km/h`
+        this.gearEl.innerText = `Gear: ${gear}`
+        this.modeEl.innerText = `Mode: ${mode}   [L] Toggle Day/Night`
     }
 }

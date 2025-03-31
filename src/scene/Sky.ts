@@ -1,29 +1,39 @@
 import * as THREE from "three"
-import { Sky } from "three/examples/jsm/objects/Sky.js"
+import { Sky } from "three/examples/jsm/objects/Sky"
 
-export function createSky(renderer: THREE.WebGLRenderer, scene: THREE.Scene): void {
-    const sky = new Sky()
+let sky: Sky
+let sun: THREE.Vector3
+let skyScene: THREE.Scene
+
+export function createPhysicalSky(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
+    sky = new Sky()
     sky.scale.setScalar(450000)
-    scene.add(sky) // 시각적으로는 main scene에 추가
 
-    // 태양 파라미터 설정
-    const skyUniforms = sky.material.uniforms
-    const sun = new THREE.Vector3()
-    const phi = THREE.MathUtils.degToRad(90 - 10)
-    const theta = THREE.MathUtils.degToRad(180)
+    sun = new THREE.Vector3()
+    sky.material.uniforms["turbidity"].value = 10
+    sky.material.uniforms["rayleigh"].value = 2
+    sky.material.uniforms["mieCoefficient"].value = 0.005
+    sky.material.uniforms["mieDirectionalG"].value = 0.8
+    sky.material.uniforms["sunPosition"].value = sun
+
+    scene.add(sky)
+
+    skyScene = new THREE.Scene()
+    skyScene.add(sky)
+
+    updateSun(45, 180, scene, renderer)
+}
+
+export function updateSun(elevation: number, azimuth: number, scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
+    const phi = THREE.MathUtils.degToRad(90 - elevation)
+    const theta = THREE.MathUtils.degToRad(azimuth)
     sun.setFromSphericalCoords(1, phi, theta)
 
-    skyUniforms["sunPosition"].value.copy(sun)
-    skyUniforms["turbidity"].value = 2
-    skyUniforms["rayleigh"].value = 1.5
-    skyUniforms["mieCoefficient"].value = 0.005
-    skyUniforms["mieDirectionalG"].value = 0.7
-
-    const envScene = new THREE.Scene()
-    envScene.add(sky.clone())
+    sky.material.uniforms["sunPosition"].value.copy(sun)
 
     const pmrem = new THREE.PMREMGenerator(renderer)
-    const envMap = pmrem.fromScene(envScene).texture
+    const renderTarget = pmrem.fromScene(skyScene)
 
-    scene.environment = envMap // 조명용만 설정
+    scene.environment = renderTarget.texture
+    scene.background = renderTarget.texture
 }
