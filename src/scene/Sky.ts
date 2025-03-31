@@ -5,7 +5,7 @@ let sky: Sky
 let sun: THREE.Vector3
 let skyScene: THREE.Scene
 
-export function createPhysicalSky(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
+export function createSky(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
     sky = new Sky()
     sky.scale.setScalar(450000)
 
@@ -16,10 +16,9 @@ export function createPhysicalSky(scene: THREE.Scene, renderer: THREE.WebGLRende
     sky.material.uniforms["mieDirectionalG"].value = 0.8
     sky.material.uniforms["sunPosition"].value = sun
 
-    scene.add(sky)
-
     skyScene = new THREE.Scene()
     skyScene.add(sky)
+    scene.add(sky)
 
     updateSun(45, 180, scene, renderer)
 }
@@ -33,7 +32,6 @@ export function updateSun(elevation: number, azimuth: number, scene: THREE.Scene
 
     const pmrem = new THREE.PMREMGenerator(renderer)
     const renderTarget = pmrem.fromScene(skyScene)
-
     scene.environment = renderTarget.texture
     scene.background = renderTarget.texture
 }

@@ -1,7 +1,7 @@
 import * as THREE from "three"
 import { Car } from "./entities/Car"
 import { Terrain } from "./entities/Terrain"
-import { createPhysicalSky, updateSun } from "./scene/Sky"
+import { createSky, updateSun } from "./scene/Sky"
 import { InputSystem } from "./systems/InputSystem"
 import { CenterLine } from "./entities/CenterLine"
 import { RoadPath } from "./entities/RoadPath"
@@ -12,66 +12,56 @@ import { Hud } from "./ui/Hud"
 let isNight = false
 
 export class App {
-    private scene: THREE.Scene
+    private scene = new THREE.Scene()
     private camera: THREE.PerspectiveCamera
     private renderer: THREE.WebGLRenderer
 
     private input = new InputSystem()
     private car: Car
     private hud: Hud
+    private ambient!: THREE.AmbientLight
+    private directional!: THREE.DirectionalLight
 
     constructor(private container: HTMLElement) {
-        this.scene = new THREE.Scene()
-
         this.camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000)
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true })
         this.renderer.setSize(container.clientWidth, container.clientHeight)
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+        this.renderer.setPixelRatio(/Mobi|Android/i.test(navigator.userAgent) ? 1 : Math.min(window.devicePixelRatio, 1.5))
+        this.renderer.shadowMap.enabled = !/Mobi|Android/i.test(navigator.userAgent)
         this.renderer.outputColorSpace = THREE.SRGBColorSpace
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-        this.renderer.toneMappingExposure = isNight ? 1.1 : 0.75
-        // WebGLRenderer 설정 강화
-        this.renderer.shadowMap.enabled = true
+        this.renderer.toneMappingExposure = 0.75
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
-
         container.appendChild(this.renderer.domElement)
 
-        createPhysicalSky(this.scene, this.renderer)
+        createSky(this.scene, this.renderer)
 
-        // Ambient Light
-        const ambient = new THREE.AmbientLight(0xffffff, 0.3)
-        ambient.name = "ambient"
-        this.scene.add(ambient)
+        this.ambient = new THREE.AmbientLight(0xffffff, 0.3)
+        this.scene.add(this.ambient)
 
-        // Directional Light (태양 역할)
-        const light = new THREE.DirectionalLight(0xffffff, 0.6)
-        light.name = "sun"
-        light.position.set(0, 20, 20)
-        this.scene.add(light)
-        this.scene.add(light.target)
+        this.directional = new THREE.DirectionalLight(0xffffff, 0.6)
+        this.directional.position.set(0, 20, 20)
+        this.scene.add(this.directional, this.directional.target)
 
-        // Terrain
         const terrain = new Terrain({
             size: 500,
-            resolution: 256,
+            resolution: 128,
             heightScale: 3,
             flattenWidth: 10,
             textureRepeat: 200,
         })
         this.scene.add(terrain.mesh)
 
-        // Road
+        const tracker = new GroundTracker(terrain.mesh)
+
         const roadPath = new RoadPath()
-        const roadMesh = new RoadMesh(roadPath, 4)
-        roadMesh.mesh.name = "roadMesh"
+        const roadMesh = new RoadMesh(roadPath, pos => tracker.getHeightAt(pos), 4)
         this.scene.add(roadMesh.mesh)
 
         const centerLine = new CenterLine(roadPath)
         this.scene.add(centerLine.meshGroup)
 
-        // Car
-        const tracker = new GroundTracker(terrain.mesh)
         this.car = new Car(this.scene, this.input, tracker)
         this.car.setInitial({
             position: new THREE.Vector3(0, 0.5, -25),
@@ -85,25 +75,25 @@ export class App {
         this.addResizeListener()
 
         window.addEventListener("keydown", e => {
-            if (e.key === "l" || e.key === "L") this.toggleNightMode()
+            if (e.key.toLowerCase() === "l") this.toggleNightMode()
         })
     }
 
     private animate = () => {
         requestAnimationFrame(this.animate)
-
         this.car.update()
         this.hud.update(this.car.getSpeed() ?? 0, "D", isNight ? "NIGHT" : "DAY")
 
         const targetPos = this.car.position
         const offset = new THREE.Vector3(0, 4, -8).applyQuaternion(this.car.quaternion)
-        const cameraTarget = new THREE.Vector3().copy(targetPos).add(offset)
-
-        const lookAt = targetPos.clone()
-        lookAt.y += 1
+        const cameraTarget = targetPos.clone().add(offset)
+        const lookAt = targetPos.clone().add(new THREE.Vector3(0, 1, 0))
 
         this.camera.position.lerp(cameraTarget, 0.25)
-        this.camera.lookAt(lookAt)
+        this.camera.quaternion.slerp(
+            new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(this.camera.position, lookAt, new THREE.Vector3(0, 1, 0))),
+            0.15,
+        )
 
         this.renderer.render(this.scene, this.camera)
     }
@@ -111,14 +101,10 @@ export class App {
     private toggleNightMode() {
         isNight = !isNight
         updateSun(isNight ? 2 : 45, isNight ? 180 : 90, this.scene, this.renderer)
-
-        const ambient = this.scene.getObjectByName("ambient") as THREE.AmbientLight
-        if (ambient) ambient.intensity = isNight ? 0.05 : 0.3
-
-        const directional = this.scene.getObjectByName("sun") as THREE.DirectionalLight
-        if (directional) directional.intensity = isNight ? 0.1 : 0.6
-
+        this.ambient.intensity = isNight ? 0.05 : 0.3
+        this.directional.intensity = isNight ? 0.1 : 0.6
         this.car.toggleLights(isNight)
+        this.renderer.toneMappingExposure = isNight ? 1.0 : 0.75
     }
 
     private addResizeListener() {

@@ -90,6 +90,13 @@ export class Car {
         this.velocity.copy(this.forward).multiplyScalar(this.acceleration)
         mesh.position.add(this.velocity)
 
+        const touchSteer = this.input.getSteeringFromTouch()
+        this.steeringAngle += touchSteer * this.steeringAccel
+
+        if (this.input.isAccelerating()) {
+            this.acceleration += this.accelerationRate
+        }
+
         if (this.tracker) {
             const terrainY = this.tracker.getHeightAt(mesh.position)
             mesh.position.y = terrainY + 0.2
