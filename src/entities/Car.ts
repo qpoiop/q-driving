@@ -9,8 +9,9 @@ export class Car {
     private steeringAngle = 0
 
     private readonly moveSpeed = 0.3 // 기존 0.1 → 0.3
-    private readonly steeringAccel = 0.01 // 기존 0.002 → 0.01
-    private readonly maxSteering = 0.08 // 기존 0.04 → 0.08
+    private readonly steeringAccel = 0.003
+    private readonly maxSteering = 0.03
+
     private readonly steeringFriction = 0.9
 
     private prevPosition = new THREE.Vector3()

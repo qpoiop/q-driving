@@ -84,15 +84,17 @@ export class App {
         const targetPos = this.car.position
 
         // 카메라 오프셋: 차량 뒤쪽에 고정된 위치
-        const offset = new THREE.Vector3(0, 5, -10).applyQuaternion(this.car.quaternion)
-        const cameraTarget = new THREE.Vector3().copy(targetPos).add(offset)
+        const offset = new THREE.Vector3(0, 4, -8).applyQuaternion(this.car.quaternion) // 더 짧은 간격
+        // const offset = new THREE.Vector3(0, 5, -10).applyQuaternion(this.car.quaternion)
 
+        const cameraTarget = new THREE.Vector3().copy(targetPos).add(offset)
         const lookAt = targetPos.clone()
         lookAt.y += 1
 
-        this.camera.position.lerp(cameraTarget, 0.1)
-        this.camera.lookAt(lookAt)
+        this.camera.position.lerp(cameraTarget, 0.25) // 카메라가 빠르게 따라옴
+        // this.camera.position.lerp(cameraTarget, 0.1)
 
+        this.camera.lookAt(lookAt)
         this.renderer.render(this.scene, this.camera)
     }
 
