@@ -1,3 +1,6 @@
+// Car.ts
+// ✅ 속도 조정 및 충돌 대응 기반 구조 포함
+
 import * as THREE from "three"
 import { gltfLoader } from "../loaders/glbfLoader"
 import { InputSystem } from "../systems/InputSystem"
@@ -9,14 +12,14 @@ export class Car {
 
     private steeringAngle = 0
     private acceleration = 0
-    private readonly maxSpeed = 1.2
-    private readonly accelerationRate = 0.02
-    private readonly brakeRate = 0.05
-    private readonly steeringAccel = 0.003
+    private readonly maxSpeed = 0.8 // 기본 속도 낮춤
+    private readonly accelerationRate = 0.01
+    private readonly brakeRate = 0.04
+    private readonly steeringAccel = 0.002
     private readonly maxSteering = 0.03
     private readonly steeringFriction = 0.9
-    private readonly rollingFriction = 0.98
-    private readonly airResistance = 0.995
+    private readonly rollingFriction = 0.96
+    private readonly airResistance = 0.992
 
     private readonly forward = new THREE.Vector3()
     private readonly velocity = new THREE.Vector3()
