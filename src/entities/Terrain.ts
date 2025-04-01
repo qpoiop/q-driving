@@ -23,12 +23,15 @@ export class Terrain {
     public mesh: THREE.Mesh
     private size: number
     private heightData: number[][] = []
+    private resolution: number
 
     constructor(opts: TerrainOptions) {
         const { size, resolution, heightScale, flattenWidth, textureRepeat, offsetX = 0, offsetZ = 0 } = opts
         this.size = size
+        this.resolution = resolution
 
         const noise2D = createNoise2D()
+
         const albedo = loadTexture("/assets/textures/ground/4k/ground008_color.jpg")
         const normal = loadTexture("/assets/textures/ground/4k/ground008_normal.jpg")
         const roughness = loadTexture("/assets/textures/ground/4k/ground008_roughness.jpg")
@@ -54,29 +57,20 @@ export class Terrain {
         geo.computeVertexNormals()
         geo.setAttribute("uv2", new THREE.BufferAttribute(geo.attributes.uv.array, 2))
 
-        this.mesh = new THREE.Mesh(
-            geo,
-            new THREE.MeshStandardMaterial({
-                map: albedo,
-                normalMap: normal,
-                roughnessMap: roughness,
-                aoMap: aoMap,
-            }),
-        )
+        this.mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: albedo, normalMap: normal, roughnessMap: roughness, aoMap }))
         this.mesh.receiveShadow = true
         this.mesh.position.set(offsetX, 0, offsetZ)
 
-        this.cacheHeightData(geo, resolution)
+        this.cacheHeightData(geo)
     }
 
-    private cacheHeightData(geo: THREE.BufferGeometry, resolution: number) {
+    private cacheHeightData(geo: THREE.BufferGeometry) {
         const pos = geo.attributes.position
-        const size = resolution + 1
+        const size = this.resolution + 1
         for (let z = 0; z < size; z++) {
             const row: number[] = []
             for (let x = 0; x < size; x++) {
-                const idx = z * size + x
-                row.push(pos.getY(idx))
+                row.push(pos.getY(z * size + x))
             }
             this.heightData.push(row)
         }
@@ -87,14 +81,13 @@ export class Terrain {
         const half = this.size / 2
         const x = (local.x + half) / this.size
         const z = (local.z + half) / this.size
-        const xi = Math.floor(x * (this.heightData.length - 1))
-        const zi = Math.floor(z * (this.heightData.length - 1))
-        if (!this.heightData[zi] || this.heightData[zi][xi] == null) return this.mesh.position.y
-        return this.heightData[zi][xi] + this.mesh.position.y
+        const xi = Math.floor(x * this.resolution)
+        const zi = Math.floor(z * this.resolution)
+        return this.heightData[zi]?.[xi] + this.mesh.position.y || this.mesh.position.y
     }
 
-    public getNormalAt(pos: THREE.Vector3): THREE.Vector3 {
-        return new THREE.Vector3(0, 1, 0) // 개선 여지 있음 (현재는 고정)
+    public getNormalAt(_: THREE.Vector3): THREE.Vector3 {
+        return new THREE.Vector3(0, 1, 0)
     }
 
     public dispose() {

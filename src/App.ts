@@ -19,34 +19,46 @@ export class App {
     private input = new InputSystem()
     private car: Car
     private hud: Hud
-    private joystick = new Joystick()
     private world: WorldManager
+    private joystick: Joystick
     private ambient!: THREE.AmbientLight
     private directional!: THREE.DirectionalLight
     private prevCameraTarget = new THREE.Vector3()
 
     constructor(private container: HTMLElement) {
-        this.camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000)
+        // this.camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000)
+        this.camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 3000)
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true })
         this.renderer.setSize(container.clientWidth, container.clientHeight)
         this.renderer.setPixelRatio(/Mobi|Android/i.test(navigator.userAgent) ? 1 : Math.min(window.devicePixelRatio, 1.5))
-        this.renderer.shadowMap.enabled = !/Mobi|Android/i.test(navigator.userAgent)
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+        this.renderer.shadowMap.enabled = true
         this.renderer.outputColorSpace = THREE.SRGBColorSpace
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping
         this.renderer.toneMappingExposure = 0.75
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
         container.appendChild(this.renderer.domElement)
 
         createSky(this.scene, this.renderer)
 
         this.ambient = new THREE.AmbientLight(0xffffff, 0.3)
+        this.scene.add(this.ambient)
+
         this.directional = new THREE.DirectionalLight(0xffffff, 0.6)
         this.directional.position.set(0, 20, 20)
-        this.scene.add(this.ambient, this.directional, this.directional.target)
+        this.scene.add(this.directional, this.directional.target)
 
+        this.joystick = new Joystick()
+        this.initialize()
+        this.addResizeListener()
+        window.addEventListener("keydown", e => {
+            if (e.key.toLowerCase() === "l") this.toggleNightMode()
+        })
+    }
+
+    private async initialize() {
         this.world = new WorldManager(this.scene)
-        this.world.init(new THREE.Vector3(0, 0, 0))
+        await this.world.init(new THREE.Vector3(0, 0, 0))
 
         const roadPath = new RoadPath()
         const roadMesh = new RoadMesh(roadPath, pos => this.world.getHeightAt(pos), 4)
@@ -65,19 +77,13 @@ export class App {
 
         this.hud = new Hud()
         this.animate()
-        this.addResizeListener()
-
-        window.addEventListener("keydown", e => {
-            if (e.key.toLowerCase() === "l") this.toggleNightMode()
-        })
     }
 
     private animate = () => {
         requestAnimationFrame(this.animate)
-
         this.car.update()
         this.world.update(this.car.position)
-        this.hud.update(this.car.getSpeed() ?? 0, "D", isNight ? "NIGHT" : "DAY")
+        this.hud.update(this.car.getSpeed(), "D", isNight ? "NIGHT" : "DAY")
 
         const targetPos = this.car.position
         if (!targetPos.equals(this.prevCameraTarget)) {
