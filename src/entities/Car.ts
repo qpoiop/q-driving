@@ -65,11 +65,7 @@ export class Car {
         const keyUp = this.input.isKeyPressed("w") || this.input.isKeyPressed("arrowup")
         const keyDown = this.input.isKeyPressed("s") || this.input.isKeyPressed("arrowdown")
 
-        let steer = 0
-        if (keyLeft && !keyRight) steer = 1
-        else if (!keyLeft && keyRight) steer = -1
-        steer += inputX
-
+        let steer = inputX + (keyLeft ? 1 : keyRight ? -1 : 0)
         const accel = inputY || (keyUp ? -1 : keyDown ? 1 : 0)
 
         this.steeringAngle += steer * this.steeringAccel
@@ -89,9 +85,6 @@ export class Car {
             const y = this.world.getHeightAt(next)
             next.y = THREE.MathUtils.lerp(this.mesh.position.y, y + 0.3, 0.4)
             this.mesh.position.copy(next)
-        } else {
-            // 충돌 시 정지
-            this.acceleration = 0
         }
 
         const rawNormal = this.world.getNormalAt(this.mesh.position)

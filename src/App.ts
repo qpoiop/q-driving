@@ -80,27 +80,36 @@ export class App {
     }
 
     private animate = () => {
+        const t0 = performance.now()
         requestAnimationFrame(this.animate)
+        const t1 = performance.now()
+
         this.car.update()
-        this.world.update(this.car.position)
-        this.hud.update(this.car.getSpeed(), "D", isNight ? "NIGHT" : "DAY")
+        const t2 = performance.now()
+        const pos = this.car.position
+        const speed = this.car.getSpeed()
 
-        const targetPos = this.car.position
-        if (!targetPos.equals(this.prevCameraTarget)) {
-            const offset = new THREE.Vector3(0, 4, -8).applyQuaternion(this.car.quaternion)
-            const cameraTarget = targetPos.clone().add(offset)
-            const lookAt = targetPos.clone().add(new THREE.Vector3(0, 1, 0))
+        this.world.update(pos)
+        const t3 = performance.now()
 
-            this.camera.position.lerp(cameraTarget, 0.25)
-            this.camera.quaternion.slerp(
-                new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(this.camera.position, lookAt, new THREE.Vector3(0, 1, 0))),
-                0.15,
-            )
+        const offset = new THREE.Vector3(0, 4, -8).applyQuaternion(this.car.quaternion)
+        const cameraTarget = pos.clone().add(offset)
+        const lookAt = pos.clone().add(new THREE.Vector3(0, 1, 0))
 
-            this.prevCameraTarget.copy(targetPos)
-        }
+        this.camera.position.lerp(cameraTarget, 0.25)
+        this.camera.quaternion.slerp(
+            new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(this.camera.position, lookAt, new THREE.Vector3(0, 1, 0))),
+            0.15,
+        )
 
+        this.hud.update(speed, "D", isNight ? "NIGHT" : "DAY")
         this.renderer.render(this.scene, this.camera)
+        const t4 = performance.now()
+        console.log(
+            `Δtotal=${(t4 - t0).toFixed(2)}ms | update=${(t2 - t1).toFixed(2)}ms | world=${(t3 - t2).toFixed(2)}ms | render=${(t4 - t3).toFixed(
+                2,
+            )}ms`,
+        )
     }
 
     private toggleNightMode() {

@@ -27,7 +27,7 @@
         "jsx": "react-jsx",
         "baseUrl": ".",
         "typeRoots": ["./types", "node_modules/@types"],
-        "lib": ["DOM", "DOM.Iterable", "ESNext"],
+        "lib": ["DOM", "DOM.Iterable", "ESNext", "WebWorker"],
         "paths": {
             "~/*": ["./*"]
         }
