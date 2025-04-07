@@ -25,7 +25,7 @@ export class Car {
 
     private initial = {
         position: new THREE.Vector3(0, 0.5, -25),
-        rotation: new THREE.Euler(0, Math.PI, 0),
+        rotation: new THREE.Euler(0, 0, 0),
         scale: new THREE.Vector3(1.8, 1.8, 1.8),
     }
 
@@ -39,18 +39,53 @@ export class Car {
         if (config.scale) this.initial.scale.copy(config.scale)
     }
 
-    public load() {
-        gltfLoader.load("/assets/models/car/scene.gltf", gltf => {
-            const model = gltf.scene
-            model.position.copy(this.initial.position)
-            model.scale.copy(this.initial.scale)
-            model.rotation.copy(this.initial.rotation)
-            model.traverse(obj => (obj.castShadow = true))
-            this.scene.add(model)
-            this.mesh = model
-            this.prevPosition.copy(model.position)
-            this.setupHeadlights()
-            this.toggleLights(false)
+    public load(): Promise<void> {
+        console.log("[Car] 차량 모델 로딩 시작", {
+            initialPosition: this.initial.position,
+            initialRotation: this.initial.rotation,
+            initialScale: this.initial.scale,
+        })
+        return new Promise((resolve, reject) => {
+            gltfLoader.load(
+                "/assets/models/car/scene.gltf",
+                gltf => {
+                    console.log("[Car] 차량 모델 로드 성공")
+                    const model = gltf.scene
+                    model.position.copy(this.initial.position)
+                    model.scale.copy(this.initial.scale)
+                    model.rotation.copy(this.initial.rotation)
+                    model.traverse(obj => {
+                        obj.castShadow = true
+                        if (obj instanceof THREE.Mesh) {
+                            console.log("[Car] 메시 설정:", obj.name, {
+                                position: obj.position,
+                                rotation: obj.rotation,
+                                scale: obj.scale,
+                            })
+                        }
+                    })
+                    this.scene.add(model)
+                    this.mesh = model
+                    this.prevPosition.copy(model.position)
+                    this.setupHeadlights()
+                    this.toggleLights(false)
+                    console.log("[Car] 차량 초기화 완료", {
+                        worldPosition: model.getWorldPosition(new THREE.Vector3()),
+                        localPosition: model.position,
+                        worldRotation: model.getWorldQuaternion(new THREE.Quaternion()),
+                        localRotation: model.rotation,
+                        scale: model.scale,
+                    })
+                    resolve()
+                },
+                progress => {
+                    console.log("[Car] 로딩 진행률:", Math.round((progress.loaded / progress.total) * 100), "%")
+                },
+                error => {
+                    console.error("[Car] 차량 모델 로드 실패:", error)
+                    reject(error)
+                },
+            )
         })
     }
 
@@ -65,8 +100,8 @@ export class Car {
         const keyUp = this.input.isKeyPressed("w") || this.input.isKeyPressed("arrowup")
         const keyDown = this.input.isKeyPressed("s") || this.input.isKeyPressed("arrowdown")
 
-        let steer = inputX + (keyLeft ? 1 : keyRight ? -1 : 0)
-        const accel = inputY || (keyUp ? -1 : keyDown ? 1 : 0)
+        let steer = inputX + (keyLeft ? -1 : keyRight ? 1 : 0)
+        const accel = inputY + (keyUp ? 1 : keyDown ? -1 : 0)
 
         this.steeringAngle += steer * this.steeringAccel
         this.steeringAngle *= this.steeringFriction

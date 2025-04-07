@@ -25,9 +25,8 @@ export class Hud {
         document.body.appendChild(this.container)
     }
 
-    public update(speed: number, gear: string = "D", mode: string = "DAY") {
+    public update(speed: number, mode: string = "DAY") {
         this.speedEl.innerText = `Speed: ${(speed * 50).toFixed(1)} km/h`
-        this.gearEl.innerText = `Gear: ${gear}`
         this.modeEl.innerText = `Mode: ${mode}   [L] Toggle Day/Night`
     }
 }
