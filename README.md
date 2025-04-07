@@ -10,6 +10,5 @@
 
 ### inplaying captures
 
-![alt text](/public/assets/image_day.png){: width="270" height="180"}
-
-![alt text](/public/assets/image_nignt.png){: width="270" height="180"}
+![alt text](/public/assets/image_day.png)  
+![alt text](/public/assets/image_nignt.png)
