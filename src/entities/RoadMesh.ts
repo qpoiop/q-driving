@@ -4,7 +4,7 @@ import { RoadPath } from "./RoadPath"
 export class RoadMesh {
     public mesh: THREE.Mesh
 
-    constructor(private path: RoadPath, private getHeight: (pos: THREE.Vector3) => number, private halfWidth = 2.5, private offsetY = 0.1) {
+    constructor(private path: RoadPath, private getHeight: (pos: THREE.Vector3) => number, private halfWidth = 2.5, private offsetY = 0.05) {
         console.log("[RoadMesh] 도로 메시 생성 시작", { halfWidth, offsetY })
         this.mesh = this.createMesh()
         console.log("[RoadMesh] 도로 메시 생성 완료")
@@ -12,7 +12,7 @@ export class RoadMesh {
 
     private createMesh(): THREE.Mesh {
         console.log("[RoadMesh] 도로 지오메트리 생성 시작")
-        const divisions = 500
+        const divisions = 200
         const positions: number[] = []
         const uvs: number[] = []
         const indices: number[] = []
@@ -31,25 +31,14 @@ export class RoadMesh {
             const left = point.clone().add(normal.clone().multiplyScalar(this.halfWidth))
             const right = point.clone().add(normal.clone().multiplyScalar(-this.halfWidth))
 
-            const samples = 5
-            let leftHeight = 0
-            let rightHeight = 0
-
-            for (let j = 0; j < samples; j++) {
-                const t = j / (samples - 1)
-                tempVec.lerpVectors(left, right, t)
-                const height = this.getHeight(tempVec)
-                if (j === 0) leftHeight = height
-                if (j === samples - 1) rightHeight = height
-            }
-
-            left.y = leftHeight + this.offsetY
-            right.y = rightHeight + this.offsetY
+            const height = this.getHeight(point)
+            left.y = height + this.offsetY
+            right.y = height + this.offsetY
 
             positions.push(left.x, left.y, left.z)
             positions.push(right.x, right.y, right.z)
-            uvs.push(0, t * 20)
-            uvs.push(1, t * 20)
+            uvs.push(0, t * 10)
+            uvs.push(1, t * 10)
         }
         console.log("[RoadMesh] 도로 버텍스 생성 완료")
 

@@ -6,22 +6,26 @@ interface CenterLineOptions {
     dashLength?: number
     spacing?: number
     width?: number
+    height?: number
 }
 
 export class CenterLine {
     public meshGroup: THREE.Group
 
     constructor(path: RoadPath, options: CenterLineOptions = {}) {
-        const { color = 0xffffcc, dashLength = 1.5, spacing = 3.0, width = 0.1 } = options
+        const { color = 0xffffff, dashLength = 3.0, spacing = 5.0, width = 0.12, height = 0.005 } = options
 
         this.meshGroup = new THREE.Group()
 
-        const geometry = new THREE.PlaneGeometry(width, dashLength)
+        const geometry = new THREE.PlaneGeometry(dashLength, width)
         geometry.rotateX(-Math.PI / 2)
+        geometry.translate(dashLength / 2, 0, 0)
 
-        const material = new THREE.MeshBasicMaterial({
+        const material = new THREE.MeshStandardMaterial({
             color,
             side: THREE.DoubleSide,
+            roughness: 0.5,
+            metalness: 0.0,
         })
 
         const totalLength = path.curve.getLength()
@@ -32,11 +36,15 @@ export class CenterLine {
             const point = path.curve.getPoint(t)
             const tangent = path.curve.getTangent(t)
 
-            const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent.clone().normalize())
+            point.y += height
+
+            const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), tangent.clone().normalize())
 
             const dash = new THREE.Mesh(geometry, material)
             dash.position.copy(point)
             dash.quaternion.copy(quaternion)
+            dash.castShadow = false
+            dash.receiveShadow = false
 
             this.meshGroup.add(dash)
         }

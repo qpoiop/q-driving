@@ -1,275 +1,276 @@
 import * as THREE from "three"
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls"
 import { Car } from "./entities/Car"
-import { createSky, updateSun } from "./scene/Sky"
-import { InputSystem } from "./systems/InputSystem"
-import { CenterLine } from "./entities/CenterLine"
-import { RoadPath } from "./entities/RoadPath"
-import { RoadMesh } from "./entities/RoadMesh"
-import { Hud } from "./ui/Hud"
+import { Sky } from "./entities/Sky"
+import { WorldManager } from "./core/WorldManager"
+import { Engine } from "./core/Engine"
+import { HUD } from "./ui/Hud"
 import { Joystick } from "./ui/Joystick"
-import { WorldManager } from "./systems/WorldManager"
 import { LoadingScreen } from "./ui/LoadingScreen"
-
-let isNight = false
+import { ResourceManager } from "./core/ResourceManager"
+import { EventManager } from "./core/EventManager"
+import { Time } from "./core/Time"
+import { TransformComponent } from "./components/TransformComponent"
+import { CameraMode } from "./core/CameraController"
 
 export class App {
-    private scene = new THREE.Scene()
-    private camera: THREE.PerspectiveCamera
     private renderer: THREE.WebGLRenderer
-    private clock = new THREE.Clock()
-    private lastUpdateTime = 0
-    private readonly updateInterval = 1000 / 60 // 60fps
-    private loadingScreen = new LoadingScreen()
-    private frameCount = 0
-    private lastFpsTime = 0
-    private fps = 0
-    private raycaster = new THREE.Raycaster()
-    private lastObstructingObjects: THREE.Object3D[] = []
+    private camera: THREE.PerspectiveCamera
+    private controls: OrbitControls
+    private sky: Sky
+    private worldManager: WorldManager
+    private car: Car | null = null
+    private isNightMode: boolean = false
 
-    private input = new InputSystem()
-    private car: Car
-    private hud: Hud
-    private world: WorldManager
+    // 성능 모니터링
+    private frameCount: number = 0
+    private lastFpsTime: number = 0
+    private fps: number = 0
+
+    // 카메라 추적
+    private prevCameraTarget: THREE.Vector3
+
+    private hud: HUD
     private joystick: Joystick
-    private ambient!: THREE.AmbientLight
-    private directional!: THREE.DirectionalLight
-    private prevCameraTarget = new THREE.Vector3()
+    private ambient: THREE.AmbientLight
+    private directional: THREE.DirectionalLight
 
-    constructor(private container: HTMLElement) {
-        // 로딩 화면 표시
-        this.loadingScreen.show()
+    private engine: Engine
+    private loadingScreen: LoadingScreen
+    private resourceManager: ResourceManager
+    private scene: THREE.Scene
+    private eventManager: EventManager
+    private isInitialized: boolean = false
 
-        this.camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000)
-        // 카메라 초기 위치 설정
-        this.camera.position.set(0, 5, -10)
-        this.camera.lookAt(0, 0, 0)
+    constructor() {
+        this.engine = Engine.getInstance()
+        this.worldManager = WorldManager.getInstance()
+        this.scene = this.engine.getScene()
+        this.resourceManager = ResourceManager.getInstance()
+        this.eventManager = new EventManager()
 
-        this.renderer = new THREE.WebGLRenderer({
-            antialias: true,
-            powerPreference: "high-performance",
-        })
-        this.renderer.setSize(container.clientWidth, container.clientHeight)
-        this.renderer.setPixelRatio(/Mobi|Android/i.test(navigator.userAgent) ? 1 : Math.min(window.devicePixelRatio, 1.5))
-        this.renderer.shadowMap.enabled = true
-        this.renderer.outputColorSpace = THREE.SRGBColorSpace
-        this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-        this.renderer.toneMappingExposure = 0.75
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
-        container.appendChild(this.renderer.domElement)
+        this.renderer = this.engine.getRenderer()
+        this.camera = this.engine.getCamera()
 
-        createSky(this.scene, this.renderer)
+        this.controls = new OrbitControls(this.camera, this.renderer.domElement)
+        this.setupControls()
+        this.setupEventListeners()
 
-        this.ambient = new THREE.AmbientLight(0xffffff, 0.3)
-        this.scene.add(this.ambient)
+        this.sky = new Sky()
 
-        this.directional = new THREE.DirectionalLight(0xffffff, 0.6)
-        this.directional.position.set(0, 20, 20)
-        this.directional.castShadow = true
-        this.directional.shadow.mapSize.width = 2048
-        this.directional.shadow.mapSize.height = 2048
-        this.directional.shadow.camera.near = 0.5
-        this.directional.shadow.camera.far = 500
-        this.directional.shadow.camera.left = -50
-        this.directional.shadow.camera.right = 50
-        this.directional.shadow.camera.top = 50
-        this.directional.shadow.camera.bottom = -50
-        this.directional.shadow.bias = -0.001
-        this.directional.shadow.normalBias = 0.02
-        this.directional.shadow.radius = 1.5
-        this.scene.add(this.directional, this.directional.target)
-
+        this.loadingScreen = new LoadingScreen()
+        this.hud = new HUD()
         this.joystick = new Joystick()
-        this.initialize()
-        this.addResizeListener()
-        document.addEventListener("keydown", e => {
-            if (e.key.toLowerCase() === "l") {
-                this.toggleNightMode()
-            }
-        })
+
+        this.ambient = new THREE.AmbientLight(0xffffff, 0.5)
+        this.directional = new THREE.DirectionalLight(0xffffff, 0.5)
+        this.directional.position.set(5, 5, 5)
+
+        this.prevCameraTarget = new THREE.Vector3()
+
+        // animate 메서드를 바인딩
+        this.animate = this.animate.bind(this)
     }
 
-    private async initialize() {
-        try {
-            this.loadingScreen.updateProgress(0.1)
+    private setupControls(): void {
+        // OrbitControls 비활성화 (차량 추적 카메라만 사용)
+        this.controls.enabled = false
+    }
 
-            // WorldManager 초기화
-            this.world = new WorldManager(this.scene)
-            await this.world.init(new THREE.Vector3(0, 0, 0))
+    private setupEventListeners(): void {
+        window.addEventListener("resize", this.onWindowResize.bind(this))
+        window.addEventListener("keydown", this.onKeyDown.bind(this))
+    }
+
+    private onWindowResize(): void {
+        const width = window.innerWidth
+        const height = window.innerHeight
+        this.renderer.setSize(width, height)
+        this.engine.getCameraController().onWindowResize()
+    }
+
+    private onKeyDown(event: KeyboardEvent): void {
+        switch (event.key) {
+            case "n":
+                this.toggleNightMode()
+                break
+        }
+    }
+
+    private toggleNightMode(): void {
+        this.isNightMode = !this.isNightMode
+        this.sky.setNightMode(this.isNightMode)
+        this.ambient.intensity = this.isNightMode ? 0.1 : 0.5
+        this.directional.intensity = this.isNightMode ? 0.1 : 0.5
+        if (this.car) {
+            this.car.setNightMode(this.isNightMode)
+        }
+        this.renderer.toneMappingExposure = this.isNightMode ? 0.5 : 0.75
+    }
+
+    public async initialize(container: HTMLElement): Promise<void> {
+        if (this.isInitialized) {
+            console.warn("App is already initialized")
+            return
+        }
+
+        try {
+            console.log("Starting initialization...")
+            this.loadingScreen.show()
+
+            await this.engine.initialize(container)
+            console.log("Engine initialized")
+            this.loadingScreen.updateProgress(0.2)
+
+            await this.resourceManager.initialize()
+            console.log("Resource manager initialized")
             this.loadingScreen.updateProgress(0.3)
 
-            // 지형 생성
-            const roadPath = new RoadPath()
-            const roadMesh = new RoadMesh(roadPath, pos => this.world.getHeightAt(pos), 4)
-            this.scene.add(roadMesh.mesh)
-            this.loadingScreen.updateProgress(0.5)
+            await this.worldManager.initialize()
+            console.log("World manager initialized")
 
-            // 중앙선 생성
-            const centerLine = new CenterLine(roadPath)
-            this.scene.add(centerLine.meshGroup)
-            this.loadingScreen.updateProgress(0.6)
-
-            // 차량 초기화
-            this.car = new Car(this.scene, this.input, this.world, this.joystick)
-            this.car.setInitial({
-                position: new THREE.Vector3(0, 0.5, 0),
-                rotation: new THREE.Euler(0, 0, 0),
-                scale: new THREE.Vector3(1.8, 1.8, 1.8),
-            })
-            await this.car.load()
-            this.loadingScreen.updateProgress(0.8)
-
-            // HUD 초기화
-            this.hud = new Hud()
-            this.loadingScreen.updateProgress(0.9)
-
-            // SceneryManager 초기화
-            await this.world.scenery.init()
-            this.loadingScreen.updateProgress(1.0)
-
-            // 모든 초기화가 완료된 후 애니메이션 시작
-            if (this.renderer && this.scene && this.camera) {
-                this.animate()
+            // 지형 디버깅
+            const terrain = this.worldManager.getTerrain()
+            if (!terrain) {
+                throw new Error("Terrain not initialized")
             }
 
-            this.loadingScreen.hide()
+            // 차량 초기화 및 디버깅
+            const carConfig = {
+                maxSpeed: 20,
+                acceleration: 10,
+                deceleration: 5,
+                turnSpeed: 2,
+                grip: 0.8,
+                driftFactor: 0.5,
+                suspensionStiffness: 20,
+                suspensionDamping: 2.3,
+                suspensionCompression: 4.4,
+                suspensionRestLength: 0.5,
+                rollInfluence: 0.1,
+            }
+            const inputSystem = this.engine.getInputSystem()
+            console.log("Creating car instance...")
+            this.car = new Car(terrain, carConfig, inputSystem)
+            await this.car.initialize()
+            console.log("Car initialized")
+
+            // 차량 위치 디버깅
+            const carTransform = this.car.getComponent<TransformComponent>("transform")
+            if (carTransform) {
+                const height = terrain.getHeightAt(0, 0, 0)
+                console.log("Terrain height at car position:", height)
+                carTransform.setPosition(0, height + 2, 0) // 지면보다 2 단위 위에 위치
+                const position = carTransform.getPosition()
+                console.log("Car position after set:", position)
+
+                // 카메라가 차량을 제대로 보게 설정
+                const cameraController = this.engine.getCameraController()
+                cameraController.setMode(CameraMode.FOLLOW)
+                cameraController.setTarget(this.car.getModel())
+                cameraController.setSmoothFactor(0.1)
+                console.log("Camera controller set up for car")
+            }
+
+            // 씬에 객체 추가
+            const carModel = this.car.getModel()
+            if (!carModel) {
+                throw new Error("Car model not initialized")
+            }
+            console.log("Adding car model to scene:", carModel)
+            this.scene.add(carModel)
+            console.log("Car added to scene, total objects:", this.scene.children.length)
+
+            // 조명 설정 수정
+            this.directional.position.set(50, 50, 50)
+            this.directional.castShadow = true
+            this.directional.shadow.mapSize.width = 2048
+            this.directional.shadow.mapSize.height = 2048
+            this.directional.shadow.camera.near = 0.5
+            this.directional.shadow.camera.far = 500
+            this.directional.shadow.camera.left = -100
+            this.directional.shadow.camera.right = 100
+            this.directional.shadow.camera.top = 100
+            this.directional.shadow.camera.bottom = -100
+
+            // 조명 강도 증가
+            this.ambient.intensity = 1.0
+            this.directional.intensity = 1.0
+
+            this.sky.getMesh().scale.setScalar(10000)
+            this.scene.add(this.sky.getMesh())
+            this.scene.add(this.ambient)
+            this.scene.add(this.directional)
+            console.log("Lights and sky added to scene")
+
+            await this.hud.initialize()
+            this.loadingScreen.updateProgress(0.8)
+
+            await this.joystick.initialize()
+            this.loadingScreen.updateProgress(0.9)
+
+            this.isInitialized = true
+            console.log("Initialization complete")
+
+            // 로딩 완료 처리
+            this.loadingScreen.updateProgress(1.0)
+            setTimeout(() => {
+                this.loadingScreen.hide()
+            }, 500)
+
+            // 애니메이션 시작
+            this.animate()
         } catch (error) {
-            console.error("초기화 실패:", error)
-            this.loadingScreen.hide()
-            // 에러 발생 시 사용자에게 알림
-            alert("게임 초기화에 실패했습니다. 페이지를 새로고침해주세요.")
+            console.error("Failed to initialize app:", error)
+            throw error
         }
     }
 
-    private animate = () => {
-        requestAnimationFrame(this.animate)
-
-        if (!this.renderer || !this.scene || !this.camera) return
-
-        const currentTime = this.clock.getElapsedTime()
-        const deltaTime = currentTime - this.lastUpdateTime
-
-        if (deltaTime >= this.updateInterval) {
-            this.update()
-            this.lastUpdateTime = currentTime
-        }
-
+    private animate(): void {
+        requestAnimationFrame(this.animate.bind(this))
+        this.update()
         this.render()
     }
 
-    private update() {
-        if (!this.car.mesh) return
-
-        this.car.update()
-        this.world.update(this.car.position)
-
-        // 카메라 위치 업데이트
-        const cameraTarget = this.car.position.clone()
-        this.prevCameraTarget.lerp(cameraTarget, 0.1)
-
-        // 차량 뒤쪽 상단에 카메라 위치 조정
-        const cameraOffset = new THREE.Vector3(0, 3, -8)
-        cameraOffset.applyQuaternion(this.car.quaternion)
-        this.camera.position.copy(this.prevCameraTarget).add(cameraOffset)
-
-        // 차량 앞쪽을 바라보도록 설정
-        const lookAtOffset = new THREE.Vector3(0, 0.5, 4)
-        lookAtOffset.applyQuaternion(this.car.quaternion)
-        const lookAtPoint = this.prevCameraTarget.clone().add(lookAtOffset)
-        this.camera.lookAt(lookAtPoint)
-
-        // 카메라와 차량 사이의 장애물 감지 및 처리
-        this.handleCameraObstruction()
-
-        this.world.scenery.updateVisibility(this.camera)
-        this.hud.update(this.car.getSpeed())
-    }
-
-    private handleCameraObstruction() {
-        if (!this.car.mesh) return
-
-        // 이전에 투명했던 물체들을 원래 상태로 복구
-        this.lastObstructingObjects.forEach(obj => {
-            if (obj instanceof THREE.Mesh && obj.material instanceof THREE.Material) {
-                obj.material.transparent = false
-                obj.material.opacity = 1.0
-            }
-        })
-        this.lastObstructingObjects = []
-
-        // 카메라에서 차량까지의 방향 벡터 계산
-        const carPosition = this.car.position.clone()
-        carPosition.y += 1 // 차량의 중심점을 약간 위로 조정
-        const direction = carPosition.clone().sub(this.camera.position)
-        const distance = direction.length()
-        direction.normalize()
-
-        // 레이캐스터 설정
-        this.raycaster.set(this.camera.position, direction)
-        this.raycaster.far = distance // 레이캐스터의 최대 거리를 차량까지의 거리로 제한
-
-        // 모든 물체를 대상으로 레이캐스팅 수행
-        const intersects = this.raycaster.intersectObjects(this.scene.children, true)
-
-        // 차량까지의 거리보다 가까운 물체들을 반투명하게 처리
-        for (const intersect of intersects) {
-            const obj = intersect.object
-            if (obj instanceof THREE.Mesh) {
-                // 차량이나 차량의 부품이 아닌 경우에만 처리
-                let isCarPart = false
-                let parent: THREE.Object3D | null = obj
-                while (parent && parent.parent) {
-                    if (parent === this.car.mesh) {
-                        isCarPart = true
-                        break
-                    }
-                    parent = parent.parent
-                }
-
-                if (!isCarPart && obj.material instanceof THREE.Material) {
-                    obj.material.transparent = true
-                    obj.material.opacity = 0.3
-                    obj.material.depthWrite = false // 투명한 객체의 깊이 쓰기 비활성화
-                    this.lastObstructingObjects.push(obj)
-                }
-            }
+    private update(): void {
+        this.updateFPS()
+        this.controls.update()
+        if (this.car) {
+            this.car.update(Time.getDeltaTime())
+            this.hud.updateSpeed(this.car.getSpeed())
         }
     }
 
-    private render() {
-        if (!this.renderer || !this.scene || !this.camera) return
+    private updateFPS(): void {
+        this.frameCount++
+        const now = performance.now()
+        if (now - this.lastFpsTime >= 1000) {
+            this.fps = Math.round((this.frameCount * 1000) / (now - this.lastFpsTime))
+            this.frameCount = 0
+            this.lastFpsTime = now
+            this.hud.updateFPS(this.fps)
+        }
+    }
 
-        // 씬과 카메라가 준비되었는지 확인
-        if (!this.scene.children.length || !this.camera.matrixWorldInverse) return
+    private render(): void {
+        if (!this.isInitialized) {
+            return
+        }
 
+        // 씬 렌더링
         this.renderer.render(this.scene, this.camera)
     }
 
-    private addResizeListener() {
-        const debouncedResize = this.debounce(() => {
-            this.camera.aspect = this.container.clientWidth / this.container.clientHeight
-            this.camera.updateProjectionMatrix()
-            this.renderer.setSize(this.container.clientWidth, this.container.clientHeight)
-        }, 250)
-
-        window.addEventListener("resize", debouncedResize)
-    }
-
-    private debounce(func: Function, wait: number) {
-        let timeout: number | null = null
-        return (...args: any[]) => {
-            if (timeout) window.clearTimeout(timeout)
-            timeout = window.setTimeout(() => func.apply(this, args), wait)
-        }
-    }
-
-    private toggleNightMode() {
-        isNight = !isNight
-        updateSun(isNight ? -20 : 45, 180, this.scene, this.renderer)
-        this.ambient.intensity = isNight ? 0.1 : 0.3
-        this.directional.intensity = isNight ? 0.1 : 0.6
+    public dispose(): void {
         if (this.car) {
-            this.car.toggleLights(isNight)
+            this.car.dispose()
+            this.car = null
         }
-        this.renderer.toneMappingExposure = isNight ? 0.5 : 0.75
+        this.sky.dispose()
+        this.worldManager.dispose()
+        this.engine.dispose()
+        this.renderer.dispose()
+        this.eventManager.dispose()
+        window.removeEventListener("resize", this.onWindowResize.bind(this))
     }
 }

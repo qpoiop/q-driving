@@ -1,32 +1,45 @@
-export class Hud {
-    private container: HTMLDivElement
-    private speedEl: HTMLDivElement
-    private gearEl: HTMLDivElement
-    private modeEl: HTMLDivElement
+export class HUD {
+    private speedText: HTMLDivElement
+    private fpsText: HTMLDivElement
+    private container: HTMLElement
 
     constructor() {
         this.container = document.createElement("div")
         this.container.style.position = "absolute"
-        this.container.style.bottom = "20px"
-        this.container.style.left = "20px"
-        this.container.style.color = "white"
-        this.container.style.fontSize = "12px"
-        this.container.style.fontFamily = "monospace"
+        this.container.style.bottom = "10px"
+        this.container.style.left = "10px"
+        this.container.style.color = "#f8f8f8"
+        this.container.style.fontFamily = "Arial"
+        this.container.style.fontSize = "10px"
+        this.container.style.zIndex = "1000"
         this.container.style.pointerEvents = "none"
-
-        this.speedEl = document.createElement("div")
-        this.gearEl = document.createElement("div")
-        this.modeEl = document.createElement("div")
-
-        this.container.appendChild(this.speedEl)
-        this.container.appendChild(this.gearEl)
-        this.container.appendChild(this.modeEl)
-
-        document.body.appendChild(this.container)
     }
 
-    public update(speed: number, mode: string = "DAY") {
-        this.speedEl.innerText = `Speed: ${(speed * 50).toFixed(1)} km/h`
-        this.modeEl.innerText = `Mode: ${mode}   [L] Toggle Day/Night`
+    public async initialize(): Promise<void> {
+        document.body.appendChild(this.container)
+
+        // 속도 표시 텍스트 생성
+        this.speedText = document.createElement("div")
+        this.speedText.style.marginBottom = "3px"
+        this.container.appendChild(this.speedText)
+
+        // FPS 표시 텍스트 생성
+        this.fpsText = document.createElement("div")
+        this.fpsText.style.marginBottom = "3px"
+        this.container.appendChild(this.fpsText)
+    }
+
+    public updateSpeed(speed: number): void {
+        this.speedText.textContent = `Speed: ${speed.toFixed(1)} km/h`
+    }
+
+    public updateFPS(fps: number): void {
+        this.fpsText.textContent = `FPS: ${fps}`
+    }
+
+    public dispose(): void {
+        if (this.container && this.container.parentNode) {
+            this.container.parentNode.removeChild(this.container)
+        }
     }
 }

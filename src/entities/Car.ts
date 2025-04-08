@@ -1,168 +1,374 @@
 import * as THREE from "three"
-import { gltfLoader } from "../loaders/glbfLoader"
+import { Entity } from "../core/Entity"
+import { ModelComponent } from "../components/ModelComponent"
+import { TransformComponent } from "../components/TransformComponent"
+import { ITerrainService } from "../core/ITerrainService"
+import { EventManager } from "../core/EventManager"
 import { InputSystem } from "../systems/InputSystem"
-import { WorldManager } from "../systems/WorldManager"
-import { Joystick } from "../ui/Joystick"
+import { Time } from "../core/Time"
 
-export class Car {
-    public mesh: THREE.Object3D | null = null
+interface CarConfig {
+    maxSpeed: number
+    acceleration: number
+    deceleration: number
+    turnSpeed: number
+    grip: number // 도로 접지력
+    driftFactor: number // 드리프트 계수
+    suspensionStiffness: number // 서스펜션 강성
+    suspensionDamping: number // 서스펜션 감쇠
+    suspensionCompression: number // 서스펜션 압축
+    suspensionRestLength: number // 서스펜션 기본 길이
+    rollInfluence: number // 롤 영향도
+}
 
-    private acceleration = 0
-    private steeringAngle = 0
-    private readonly maxSpeed = 1.2
-    private readonly accelerationRate = 0.015
-    private readonly brakeRate = 0.05
-    private readonly steeringAccel = 0.0025
-    private readonly maxSteering = 0.035
-    private readonly steeringFriction = 0.9
-    private readonly rollingFriction = 0.97
-    private readonly airResistance = 0.99
+export class Car extends Entity {
+    private transform: TransformComponent
+    private model: ModelComponent
+    private mesh: THREE.Mesh
+    private terrainService: ITerrainService
+    private config: CarConfig
+    private velocity: THREE.Vector3
+    private direction: THREE.Vector3
+    private headlight: THREE.SpotLight
+    private taillight: THREE.SpotLight
+    private isNightMode: boolean
+    private isBraking: boolean
+    private isDrifting: boolean // 드리프트 상태 추가
+    private currentGrip: number // 현재 접지력
+    private wheelRotation: number // 바퀴 회전 각도
+    private suspensionHeight: number // 서스펜션 높이
+    private raycaster: THREE.Raycaster
+    private lastObstructingObjects: THREE.Object3D[] = []
+    private eventManager: EventManager
+    private inputSystem: InputSystem
+    private wheelMeshes: THREE.Mesh[] = [] // 바퀴 메시 배열
+    private smokeParticles: THREE.Points // 연기 파티클
+    private driftTrail: THREE.Line // 드리프트 트레일
+    private activeKeys = new Set<string>()
 
-    private forward = new THREE.Vector3()
-    private velocity = new THREE.Vector3()
-    private prevPosition = new THREE.Vector3()
-    private smoothedNormal = new THREE.Vector3(0, 1, 0)
+    constructor(terrainService: ITerrainService, config: CarConfig, inputSystem: InputSystem) {
+        super()
+        this.terrainService = terrainService
+        this.config = config
+        this.inputSystem = inputSystem
+        this.transform = new TransformComponent()
+        this.model = new ModelComponent(new THREE.Group())
+        this.mesh = new THREE.Mesh()
+        this.velocity = new THREE.Vector3()
+        this.direction = new THREE.Vector3(0, 0, -1)
+        this.isNightMode = false
+        this.isBraking = false
+        this.isDrifting = false
+        this.currentGrip = config.grip
+        this.wheelRotation = 0
+        this.suspensionHeight = config.suspensionRestLength
+        this.raycaster = new THREE.Raycaster()
+        this.eventManager = this.inputSystem.getEventManager()
 
-    private initial = {
-        position: new THREE.Vector3(0, 0.5, -25),
-        rotation: new THREE.Euler(0, 0, 0),
-        scale: new THREE.Vector3(1.8, 1.8, 1.8),
+        // 키 이벤트 구독
+        this.eventManager.on("input:keydown", this.onKeyDown.bind(this))
+        this.eventManager.on("input:keyup", this.onKeyUp.bind(this))
+
+        this.addComponent(this.transform)
+        this.addComponent(this.model)
     }
 
-    private headlights: THREE.SpotLight[] = []
-
-    constructor(private scene: THREE.Scene, private input: InputSystem, private world: WorldManager, private joystick?: Joystick) {}
-
-    public setInitial(config: Partial<typeof this.initial>) {
-        if (config.position) this.initial.position.copy(config.position)
-        if (config.rotation) this.initial.rotation.copy(config.rotation)
-        if (config.scale) this.initial.scale.copy(config.scale)
+    private onKeyDown(key: string): void {
+        console.log("[Car] Key down:", key)
+        this.activeKeys.add(key)
     }
 
-    public load(): Promise<void> {
-        console.log("[Car] 차량 모델 로딩 시작", {
-            initialPosition: this.initial.position,
-            initialRotation: this.initial.rotation,
-            initialScale: this.initial.scale,
+    private onKeyUp(key: string): void {
+        console.log("[Car] Key up:", key)
+        this.activeKeys.delete(key)
+    }
+
+    private setupSmokeParticles(): void {
+        const particleCount = 100
+        const particles = new Float32Array(particleCount * 3)
+        const particleGeometry = new THREE.BufferGeometry()
+        const particleMaterial = new THREE.PointsMaterial({
+            color: 0x888888,
+            size: 0.1,
+            transparent: true,
+            opacity: 0.5,
         })
-        return new Promise((resolve, reject) => {
-            gltfLoader.load(
-                "/assets/models/car/scene.gltf",
-                gltf => {
-                    console.log("[Car] 차량 모델 로드 성공")
-                    const model = gltf.scene
-                    model.position.copy(this.initial.position)
-                    model.scale.copy(this.initial.scale)
-                    model.rotation.copy(this.initial.rotation)
-                    model.traverse(obj => {
-                        obj.castShadow = true
-                        if (obj instanceof THREE.Mesh) {
-                            console.log("[Car] 메시 설정:", obj.name, {
-                                position: obj.position,
-                                rotation: obj.rotation,
-                                scale: obj.scale,
-                            })
-                        }
-                    })
-                    this.scene.add(model)
-                    this.mesh = model
-                    this.prevPosition.copy(model.position)
-                    this.setupHeadlights()
-                    this.toggleLights(false)
-                    console.log("[Car] 차량 초기화 완료", {
-                        worldPosition: model.getWorldPosition(new THREE.Vector3()),
-                        localPosition: model.position,
-                        worldRotation: model.getWorldQuaternion(new THREE.Quaternion()),
-                        localRotation: model.rotation,
-                        scale: model.scale,
-                    })
-                    resolve()
-                },
-                progress => {
-                    console.log("[Car] 로딩 진행률:", Math.round((progress.loaded / progress.total) * 100), "%")
-                },
-                error => {
-                    console.error("[Car] 차량 모델 로드 실패:", error)
-                    reject(error)
-                },
-            )
-        })
-    }
 
-    public update() {
-        if (!this.mesh) return
-
-        this.forward.set(0, 0, 1).applyQuaternion(this.mesh.quaternion).setY(0).normalize()
-        const inputX = this.joystick?.getInput().x ?? 0
-        const inputY = this.joystick?.getInput().y ?? 0
-        const keyLeft = this.input.isKeyPressed("a") || this.input.isKeyPressed("arrowleft")
-        const keyRight = this.input.isKeyPressed("d") || this.input.isKeyPressed("arrowright")
-        const keyUp = this.input.isKeyPressed("w") || this.input.isKeyPressed("arrowup")
-        const keyDown = this.input.isKeyPressed("s") || this.input.isKeyPressed("arrowdown")
-
-        let steer = inputX + (keyLeft ? -1 : keyRight ? 1 : 0)
-        const accel = inputY + (keyUp ? 1 : keyDown ? -1 : 0)
-
-        this.steeringAngle += steer * this.steeringAccel
-        this.steeringAngle *= this.steeringFriction
-        this.steeringAngle = THREE.MathUtils.clamp(this.steeringAngle, -this.maxSteering, this.maxSteering)
-        this.mesh.rotation.y += this.steeringAngle
-
-        if (accel < -0.2) this.acceleration += this.accelerationRate
-        else if (accel > 0.2) this.acceleration -= this.brakeRate
-        else this.acceleration *= this.rollingFriction * this.airResistance
-
-        this.acceleration = THREE.MathUtils.clamp(this.acceleration, -this.maxSpeed * 0.7, this.maxSpeed)
-        this.velocity.copy(this.forward).multiplyScalar(this.acceleration)
-
-        const next = this.mesh.position.clone().add(this.velocity)
-        if (!this.world.isColliding(next)) {
-            const y = this.world.getHeightAt(next)
-            next.y = THREE.MathUtils.lerp(this.mesh.position.y, y + 0.3, 0.4)
-            this.mesh.position.copy(next)
+        for (let i = 0; i < particleCount; i++) {
+            particles[i * 3] = 0
+            particles[i * 3 + 1] = 0
+            particles[i * 3 + 2] = 0
         }
 
-        const rawNormal = this.world.getNormalAt(this.mesh.position)
-        this.smoothedNormal.lerp(rawNormal, 0.1)
-        const right = new THREE.Vector3().crossVectors(this.smoothedNormal, this.forward).normalize()
-        const correctedForward = new THREE.Vector3().crossVectors(right, this.smoothedNormal).normalize()
-        const m = new THREE.Matrix4().makeBasis(right, this.smoothedNormal, correctedForward)
-        const q = new THREE.Quaternion().setFromRotationMatrix(m)
-        this.mesh.quaternion.slerp(q, 0.1)
-
-        this.prevPosition.copy(this.mesh.position)
+        particleGeometry.setAttribute("position", new THREE.BufferAttribute(particles, 3))
+        this.smokeParticles = new THREE.Points(particleGeometry, particleMaterial)
+        this.model.getModel().add(this.smokeParticles)
     }
 
-    private setupHeadlights() {
-        const lightL = new THREE.SpotLight(0xffffff, 5, 100, Math.PI / 10, 0.5)
-        const lightR = new THREE.SpotLight(0xffffff, 5, 100, Math.PI / 10, 0.5)
-        lightL.castShadow = true
-        lightR.castShadow = true
-        lightL.position.set(-0.6, 0.3, 1.4)
-        lightR.position.set(0.6, 0.3, 1.4)
-        const targetL = new THREE.Object3D()
-        const targetR = new THREE.Object3D()
-        targetL.position.set(-0.6, 0.1, 10)
-        targetR.position.set(0.6, 0.1, 10)
-        this.mesh!.add(lightL, lightR, targetL, targetR)
-        lightL.target = targetL
-        lightR.target = targetR
-        this.headlights.push(lightL, lightR)
+    private setupDriftTrail(): void {
+        const trailGeometry = new THREE.BufferGeometry()
+        const trailMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 })
+        this.driftTrail = new THREE.Line(trailGeometry, trailMaterial)
+        this.model.getModel().add(this.driftTrail)
     }
 
-    public toggleLights(on: boolean) {
-        this.headlights.forEach(light => (light.visible = on))
+    private updateInput(): void {
+        let moveDirection = new THREE.Vector3(0, 0, 0)
+        let brake = false
+        let handbrake = false
+
+        if (this.inputSystem.hasTouchInput()) {
+            const touchDirection = this.inputSystem.getTouchDirection()
+            moveDirection.set(touchDirection.x, 0, -touchDirection.y)
+            brake = this.activeKeys.has("b")
+            handbrake = this.activeKeys.has("space")
+        } else {
+            const forward = this.activeKeys.has("arrowup")
+            const backward = this.activeKeys.has("arrowdown")
+            const left = this.activeKeys.has("arrowleft")
+            const right = this.activeKeys.has("arrowright")
+            brake = this.activeKeys.has("b")
+            handbrake = this.activeKeys.has("space")
+
+            if (forward) moveDirection.z -= 1
+            if (backward) moveDirection.z += 1
+            if (left) moveDirection.x -= 1
+            if (right) moveDirection.x += 1
+        }
+
+        this.isBraking = brake
+        this.isDrifting = handbrake && Math.abs(this.velocity.length()) > 5
+
+        if (moveDirection.lengthSq() > 0) {
+            moveDirection.normalize()
+        }
+
+        this.currentGrip = this.isDrifting ? this.config.grip * this.config.driftFactor : this.config.grip
+
+        const targetVelocity = moveDirection.multiplyScalar(this.config.maxSpeed)
+        const acceleration = this.isBraking ? this.config.deceleration : this.config.acceleration
+        this.velocity.lerp(targetVelocity, acceleration * Time.getDeltaTime())
     }
 
-    public get position(): THREE.Vector3 {
-        return this.mesh?.position || new THREE.Vector3()
+    private updatePhysics(deltaTime: number): void {
+        const position = this.transform.getPosition()
+        const terrainHeight = this.terrainService.getHeightAt(position.x, position.y, position.z)
+        const terrainNormal = this.terrainService.getNormalAt(position.x, position.y, position.z)
+
+        const suspensionForce = this.calculateSuspensionForce(position.y - terrainHeight, terrainNormal)
+
+        this.updateRotation(deltaTime)
+
+        const moveDelta = this.velocity.clone().multiplyScalar(deltaTime).add(suspensionForce)
+
+        this.transform.setPosition(position.x + moveDelta.x, terrainHeight + this.suspensionHeight, position.z + moveDelta.z)
+
+        this.updateWheelRotation(deltaTime)
+
+        if (this.isDrifting) {
+            this.updateDriftTrail()
+        }
+
+        this.updateSmokeParticles()
     }
 
-    public get quaternion(): THREE.Quaternion {
-        return this.mesh?.quaternion || new THREE.Quaternion()
+    private calculateSuspensionForce(height: number, normal: THREE.Vector3): THREE.Vector3 {
+        const compression = this.config.suspensionRestLength - height
+        const force = compression * this.config.suspensionStiffness
+        return normal.multiplyScalar(force)
+    }
+
+    private updateRotation(deltaTime: number): void {
+        const speed = this.velocity.length()
+        if (speed > 0.1) {
+            const turnFactor = this.isDrifting ? 2 : 1
+            const rotationAmount = this.velocity.x * this.config.turnSpeed * turnFactor * deltaTime
+            this.transform.rotateY(rotationAmount)
+        }
+    }
+
+    private updateWheelRotation(deltaTime: number): void {
+        const speed = this.velocity.length()
+        this.wheelRotation += speed * deltaTime
+        this.wheelMeshes.forEach(wheel => {
+            wheel.rotation.x = this.wheelRotation
+        })
+    }
+
+    private updateDriftTrail(): void {
+        const position = this.transform.getPosition()
+        const trailGeometry = this.driftTrail.geometry as THREE.BufferGeometry
+        const positions = trailGeometry.attributes.position.array as Float32Array
+
+        positions[0] = position.x
+        positions[1] = position.y
+        positions[2] = position.z
+
+        trailGeometry.attributes.position.needsUpdate = true
+    }
+
+    private updateSmokeParticles(): void {
+        if (!this.smokeParticles) return
+
+        const positions = this.smokeParticles.geometry.attributes.position.array as Float32Array
+
+        if (this.isDrifting || this.isBraking) {
+            for (let i = 0; i < positions.length; i += 3) {
+                positions[i] += (Math.random() - 0.5) * 0.1
+                positions[i + 1] += Math.random() * 0.1
+                positions[i + 2] += (Math.random() - 0.5) * 0.1
+            }
+        }
+
+        this.smokeParticles.geometry.attributes.position.needsUpdate = true
+    }
+
+    public override async initialize(): Promise<void> {
+        await super.initialize()
+        await this.loadCarModel()
+        this.setupLights()
+        this.setupSmokeParticles()
+        this.setupDriftTrail()
+    }
+
+    private async loadCarModel(): Promise<void> {
+        try {
+            console.log("Starting to load car model...")
+            const resourceManager = this.terrainService.getResourceManager()
+            const model = await resourceManager.loadModel("car", "models/car/car01.gltf")
+            console.log("Car model loaded:", model)
+
+            if (!model) {
+                throw new Error("Car model is null after loading")
+            }
+
+            // 모델 설정
+            this.model.setModel(model)
+            console.log("Model set to car component")
+
+            if (model.children.length === 0) {
+                throw new Error("Car model has no children")
+            }
+
+            this.mesh = model.children[0] as THREE.Mesh
+            console.log("Car mesh assigned:", this.mesh)
+
+            // 모델 스케일 조정
+            model.scale.set(1, 1, 1)
+
+            // 그림자 설정
+            model.traverse(child => {
+                if (child instanceof THREE.Mesh) {
+                    child.castShadow = true
+                    child.receiveShadow = true
+                    console.log("Shadow settings applied to mesh:", child.name)
+                }
+            })
+
+            console.log("Car model setup completed")
+        } catch (error) {
+            console.error("Failed to load car model:", error)
+            throw error
+        }
+    }
+
+    private setupLights(): void {
+        this.headlight = new THREE.SpotLight(0xffffff, 1, 100, Math.PI / 4, 0.5)
+        this.headlight.position.set(0, 1, 2)
+        this.headlight.target.position.set(0, 0, 10)
+        this.headlight.castShadow = true
+        this.model.getModel().add(this.headlight)
+        this.model.getModel().add(this.headlight.target)
+
+        this.taillight = new THREE.SpotLight(0xff0000, 0.5, 50, Math.PI / 4, 0.5)
+        this.taillight.position.set(0, 1, -2)
+        this.taillight.target.position.set(0, 0, -10)
+        this.taillight.castShadow = true
+        this.model.getModel().add(this.taillight)
+        this.model.getModel().add(this.taillight.target)
+    }
+
+    public override update(deltaTime: number): void {
+        super.update(deltaTime)
+        this.updateInput()
+        this.updatePhysics(deltaTime)
+        this.updateTerrainInteraction()
+        this.updateLights()
+        this.checkCollisions()
+    }
+
+    private updateTerrainInteraction(): void {
+        const position = this.transform.getPosition()
+        const height = this.terrainService.getHeightAt(position.x, position.y, position.z)
+        const normal = this.terrainService.getNormalAt(position.x, position.y, position.z)
+
+        // 지면 위에 약간의 여유 높이를 두어 파묻힘 방지
+        position.y = height + this.suspensionHeight + 0.1
+        this.transform.setPosition(position.x, position.y, position.z)
+
+        const up = new THREE.Vector3(0, 1, 0)
+        const quaternion = new THREE.Quaternion()
+        quaternion.setFromUnitVectors(up, normal)
+        this.transform.setRotationFromQuaternion(quaternion)
+    }
+
+    private updateLights(): void {
+        if (!this.headlight || !this.taillight) return // 조명이 초기화되지 않았으면 리턴
+        this.headlight.intensity = this.isNightMode ? 1 : 0
+        this.taillight.intensity = this.isBraking ? 1 : 0.5
     }
 
     public getSpeed(): number {
-        return this.acceleration
+        return this.velocity.length()
+    }
+
+    public getPosition(): THREE.Vector3 {
+        return this.transform.getPosition()
+    }
+
+    public getRotation(): THREE.Euler {
+        return this.transform.getRotation()
+    }
+
+    public getModel(): THREE.Group {
+        return this.model.getModel()
+    }
+
+    public setNightMode(isNightMode: boolean): void {
+        this.isNightMode = isNightMode
+    }
+
+    public setBraking(isBraking: boolean): void {
+        this.isBraking = isBraking
+    }
+
+    public setKeyState(key: string, state: boolean): void {
+        // this.keyStates[key] = state // 제거
+    }
+
+    private checkCollisions(): void {
+        const position = this.transform.getPosition()
+        this.raycaster.set(position, new THREE.Vector3(0, -1, 0))
+
+        const intersects = this.raycaster.intersectObjects(this.model.getModel().children)
+        if (intersects.length > 0) {
+            const obstructingObjects = intersects.filter(intersect => intersect.distance < 5).map(intersect => intersect.object)
+
+            if (obstructingObjects.length > 0) {
+                this.eventManager.emit("car:collision", obstructingObjects)
+            }
+
+            this.lastObstructingObjects = obstructingObjects
+        }
+    }
+
+    public override dispose(): void {
+        super.dispose()
+        this.model.dispose()
+        this.headlight.dispose()
+        this.taillight.dispose()
+        this.eventManager.dispose()
+        // window.removeEventListener("keydown", this.onKeyDown.bind(this))
+        // window.removeEventListener("keyup", this.onKeyUp.bind(this))
     }
 }
