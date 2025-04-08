@@ -9,9 +9,12 @@ import { Joystick } from "./ui/Joystick"
 import { LoadingScreen } from "./ui/LoadingScreen"
 import { ResourceManager } from "./core/ResourceManager"
 import { EventManager } from "./core/EventManager"
-import { Time } from "./core/Time"
 import { TransformComponent } from "./components/TransformComponent"
 import { CameraMode } from "./core/CameraController"
+import { CarConfig } from "./config/CarConfig"
+import { CameraController } from "./core/CameraController"
+import { PhysicsConfig } from "./components/PhysicsComponent"
+import { SuspensionConfig } from "./components/SuspensionComponent"
 
 export class App {
     private renderer: THREE.WebGLRenderer
@@ -41,6 +44,7 @@ export class App {
     private scene: THREE.Scene
     private eventManager: EventManager
     private isInitialized: boolean = false
+    private cameraController: CameraController | null = null
 
     constructor() {
         this.engine = Engine.getInstance()
@@ -115,7 +119,7 @@ export class App {
         }
 
         try {
-            console.log("Starting initialization...")
+            console.log("Initializing app...")
             this.loadingScreen.show()
 
             await this.engine.initialize(container)
@@ -136,24 +140,56 @@ export class App {
             }
 
             // 차량 초기화 및 디버깅
-            const carConfig = {
-                maxSpeed: 20,
-                acceleration: 10,
-                deceleration: 5,
-                turnSpeed: 2,
-                grip: 0.8,
-                driftFactor: 0.5,
-                suspensionStiffness: 20,
-                suspensionDamping: 2.3,
-                suspensionCompression: 4.4,
-                suspensionRestLength: 0.5,
-                rollInfluence: 0.1,
+            const physicsConfig: PhysicsConfig = {
+                mass: 1000,
+                drag: 0.1,
+                maxSpeed: 50,
+                acceleration: 1000,
+                deceleration: 2000,
+                grip: 1.0,
+                turnSpeed: 1.0,
             }
+
+            const suspensionConfig: SuspensionConfig = {
+                stiffness: 100,
+                damping: 0.5,
+                compression: 0.1,
+                restLength: 2,
+            }
+
+            const carConfig: CarConfig = {
+                physics: physicsConfig,
+                suspension: suspensionConfig,
+                maxSpeed: 50,
+                acceleration: 1000,
+                deceleration: 2000,
+                turnSpeed: 1.0,
+                grip: 1.0,
+                driftFactor: 0.5,
+                suspensionStiffness: 100,
+                suspensionDamping: 0.5,
+                suspensionCompression: 0.1,
+                suspensionRestLength: 2,
+                rollInfluence: 0.5,
+            }
+
             const inputSystem = this.engine.getInputSystem()
             console.log("Creating car instance...")
+
+            // InputSystem 설정
+            inputSystem.setKeyMapping({
+                forward: "arrowup",
+                backward: "arrowdown",
+                left: "arrowleft",
+                right: "arrowright",
+                brake: "b",
+                handbrake: "space",
+            })
+
             this.car = new Car(terrain, carConfig, inputSystem)
             await this.car.initialize()
-            console.log("Car initialized")
+            this.engine.addEntity(this.car)
+            console.log("Car initialized and added to engine")
 
             // 차량 위치 디버깅
             const carTransform = this.car.getComponent<TransformComponent>("transform")
@@ -228,6 +264,7 @@ export class App {
 
     private animate(): void {
         requestAnimationFrame(this.animate.bind(this))
+        this.engine.update()
         this.update()
         this.render()
     }
@@ -236,7 +273,6 @@ export class App {
         this.updateFPS()
         this.controls.update()
         if (this.car) {
-            this.car.update(Time.getDeltaTime())
             this.hud.updateSpeed(this.car.getSpeed())
         }
     }

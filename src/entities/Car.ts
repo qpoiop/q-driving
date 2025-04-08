@@ -2,225 +2,160 @@ import * as THREE from "three"
 import { Entity } from "../core/Entity"
 import { ModelComponent } from "../components/ModelComponent"
 import { TransformComponent } from "../components/TransformComponent"
+import { PhysicsComponent } from "../components/PhysicsComponent"
+import { SuspensionComponent } from "../components/SuspensionComponent"
+import { InputComponent } from "../components/InputComponent"
 import { ITerrainService } from "../core/ITerrainService"
-import { EventManager } from "../core/EventManager"
 import { InputSystem } from "../systems/InputSystem"
-import { Time } from "../core/Time"
-
-interface CarConfig {
-    maxSpeed: number
-    acceleration: number
-    deceleration: number
-    turnSpeed: number
-    grip: number // 도로 접지력
-    driftFactor: number // 드리프트 계수
-    suspensionStiffness: number // 서스펜션 강성
-    suspensionDamping: number // 서스펜션 감쇠
-    suspensionCompression: number // 서스펜션 압축
-    suspensionRestLength: number // 서스펜션 기본 길이
-    rollInfluence: number // 롤 영향도
-}
+import { CarConfig } from "../config/CarConfig"
 
 export class Car extends Entity {
-    private transform: TransformComponent
-    private model: ModelComponent
-    private mesh: THREE.Mesh
     private terrainService: ITerrainService
     private config: CarConfig
-    private velocity: THREE.Vector3
-    private direction: THREE.Vector3
     private headlight: THREE.SpotLight
     private taillight: THREE.SpotLight
     private isNightMode: boolean
-    private isBraking: boolean
-    private isDrifting: boolean // 드리프트 상태 추가
-    private currentGrip: number // 현재 접지력
-    private wheelRotation: number // 바퀴 회전 각도
-    private suspensionHeight: number // 서스펜션 높이
-    private raycaster: THREE.Raycaster
-    private lastObstructingObjects: THREE.Object3D[] = []
-    private eventManager: EventManager
+    private wheelMeshes: THREE.Mesh[] = []
+    private smokeParticles: THREE.Points
+    private driftTrail: THREE.Line
     private inputSystem: InputSystem
-    private wheelMeshes: THREE.Mesh[] = [] // 바퀴 메시 배열
-    private smokeParticles: THREE.Points // 연기 파티클
-    private driftTrail: THREE.Line // 드리프트 트레일
-    private activeKeys = new Set<string>()
 
     constructor(terrainService: ITerrainService, config: CarConfig, inputSystem: InputSystem) {
         super()
         this.terrainService = terrainService
         this.config = config
-        this.inputSystem = inputSystem
-        this.transform = new TransformComponent()
-        this.model = new ModelComponent(new THREE.Group())
-        this.mesh = new THREE.Mesh()
-        this.velocity = new THREE.Vector3()
-        this.direction = new THREE.Vector3(0, 0, -1)
         this.isNightMode = false
-        this.isBraking = false
-        this.isDrifting = false
-        this.currentGrip = config.grip
-        this.wheelRotation = 0
-        this.suspensionHeight = config.suspensionRestLength
-        this.raycaster = new THREE.Raycaster()
-        this.eventManager = this.inputSystem.getEventManager()
 
-        // 키 이벤트 구독
-        this.eventManager.on("input:keydown", this.onKeyDown.bind(this))
-        this.eventManager.on("input:keyup", this.onKeyUp.bind(this))
+        // 기본 컴포넌트 추가
+        this.addComponent(new TransformComponent())
+        this.addComponent(new ModelComponent(new THREE.Group()))
+        this.addComponent(new PhysicsComponent(config.physics))
+        this.addComponent(new SuspensionComponent(config.suspension))
+        this.addComponent(new InputComponent(inputSystem))
 
-        this.addComponent(this.transform)
-        this.addComponent(this.model)
+        // 이벤트 구독
+        const eventManager = inputSystem.getEventManager()
+        eventManager.on("input:keydown", this.onKeyDown.bind(this))
+        eventManager.on("input:keyup", this.onKeyUp.bind(this))
+
+        this.inputSystem = inputSystem
     }
 
     private onKeyDown(key: string): void {
-        console.log("[Car] Key down:", key)
-        this.activeKeys.add(key)
+        const input = this.getComponent<InputComponent>("input")
+        const physics = this.getComponent<PhysicsComponent>("physics")
+        if (!input || !physics) return
+
+        if (input.isHandbraking() && physics.getVelocity().length() > 5) {
+            this.startDrift()
+        }
     }
 
     private onKeyUp(key: string): void {
-        console.log("[Car] Key up:", key)
-        this.activeKeys.delete(key)
-    }
+        const input = this.getComponent<InputComponent>("input")
+        if (!input) return
 
-    private setupSmokeParticles(): void {
-        const particleCount = 100
-        const particles = new Float32Array(particleCount * 3)
-        const particleGeometry = new THREE.BufferGeometry()
-        const particleMaterial = new THREE.PointsMaterial({
-            color: 0x888888,
-            size: 0.1,
-            transparent: true,
-            opacity: 0.5,
-        })
-
-        for (let i = 0; i < particleCount; i++) {
-            particles[i * 3] = 0
-            particles[i * 3 + 1] = 0
-            particles[i * 3 + 2] = 0
+        if (key === this.inputSystem.getKeyMapping().handbrake) {
+            this.stopDrift()
         }
-
-        particleGeometry.setAttribute("position", new THREE.BufferAttribute(particles, 3))
-        this.smokeParticles = new THREE.Points(particleGeometry, particleMaterial)
-        this.model.getModel().add(this.smokeParticles)
     }
 
-    private setupDriftTrail(): void {
-        const trailGeometry = new THREE.BufferGeometry()
-        const trailMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 })
-        this.driftTrail = new THREE.Line(trailGeometry, trailMaterial)
-        this.model.getModel().add(this.driftTrail)
+    private startDrift(): void {
+        const physics = this.getComponent<PhysicsComponent>("physics")
+        if (!physics) return
+
+        // 드리프트 시작 시 물리 속성 변경
+        physics.setGrip(this.config.grip * this.config.driftFactor)
+        physics.setTurnSpeed(this.config.turnSpeed * 1.5)
     }
 
-    private updateInput(): void {
-        let moveDirection = new THREE.Vector3(0, 0, 0)
-        let brake = false
-        let handbrake = false
+    private stopDrift(): void {
+        const physics = this.getComponent<PhysicsComponent>("physics")
+        if (!physics) return
 
-        if (this.inputSystem.hasTouchInput()) {
-            const touchDirection = this.inputSystem.getTouchDirection()
-            moveDirection.set(touchDirection.x, 0, -touchDirection.y)
-            brake = this.activeKeys.has("b")
-            handbrake = this.activeKeys.has("space")
-        } else {
-            const forward = this.activeKeys.has("arrowup")
-            const backward = this.activeKeys.has("arrowdown")
-            const left = this.activeKeys.has("arrowleft")
-            const right = this.activeKeys.has("arrowright")
-            brake = this.activeKeys.has("b")
-            handbrake = this.activeKeys.has("space")
+        // 드리프트 종료 시 물리 속성 복원
+        physics.setGrip(this.config.grip)
+        physics.setTurnSpeed(this.config.turnSpeed)
+    }
 
-            if (forward) moveDirection.z -= 1
-            if (backward) moveDirection.z += 1
-            if (left) moveDirection.x -= 1
-            if (right) moveDirection.x += 1
-        }
+    public override update(deltaTime: number): void {
+        super.update(deltaTime)
 
-        this.isBraking = brake
-        this.isDrifting = handbrake && Math.abs(this.velocity.length()) > 5
+        const input = this.getComponent<InputComponent>("input")
+        const physics = this.getComponent<PhysicsComponent>("physics")
+        const suspension = this.getComponent<SuspensionComponent>("suspension")
+        const transform = this.getComponent<TransformComponent>("transform")
+
+        if (!input || !physics || !suspension || !transform) return
+
+        // 입력 처리
+        const direction = input.getMovementDirection()
+        const moveDirection = new THREE.Vector3(direction.x, 0, direction.z)
 
         if (moveDirection.lengthSq() > 0) {
             moveDirection.normalize()
         }
 
-        this.currentGrip = this.isDrifting ? this.config.grip * this.config.driftFactor : this.config.grip
+        // 물리 적용
+        const targetVelocity = moveDirection.multiplyScalar(this.config.physics.maxSpeed)
+        const acceleration = input.isBraking() ? this.config.physics.deceleration : this.config.physics.acceleration
+        physics.applyForce(targetVelocity.multiplyScalar(acceleration), deltaTime)
 
-        const targetVelocity = moveDirection.multiplyScalar(this.config.maxSpeed)
-        const acceleration = this.isBraking ? this.config.deceleration : this.config.acceleration
-        this.velocity.lerp(targetVelocity, acceleration * Time.getDeltaTime())
-    }
-
-    private updatePhysics(deltaTime: number): void {
-        const position = this.transform.getPosition()
+        // 서스펜션 처리
+        const position = transform.getPosition()
         const terrainHeight = this.terrainService.getHeightAt(position.x, position.y, position.z)
         const terrainNormal = this.terrainService.getNormalAt(position.x, position.y, position.z)
 
-        const suspensionForce = this.calculateSuspensionForce(position.y - terrainHeight, terrainNormal)
+        const suspensionForce = suspension.calculateForce(position.y - terrainHeight, terrainNormal)
+        physics.applyForce(suspensionForce, deltaTime)
+        suspension.setHeight(terrainHeight + this.config.suspension.restLength)
 
-        this.updateRotation(deltaTime)
-
-        const moveDelta = this.velocity.clone().multiplyScalar(deltaTime).add(suspensionForce)
-
-        this.transform.setPosition(position.x + moveDelta.x, terrainHeight + this.suspensionHeight, position.z + moveDelta.z)
-
+        // 바퀴 회전 업데이트
         this.updateWheelRotation(deltaTime)
 
-        if (this.isDrifting) {
+        // 드리프트 및 연기 효과
+        if (input.isHandbraking() && physics.getVelocity().length() > 5) {
             this.updateDriftTrail()
-        }
-
-        this.updateSmokeParticles()
-    }
-
-    private calculateSuspensionForce(height: number, normal: THREE.Vector3): THREE.Vector3 {
-        const compression = this.config.suspensionRestLength - height
-        const force = compression * this.config.suspensionStiffness
-        return normal.multiplyScalar(force)
-    }
-
-    private updateRotation(deltaTime: number): void {
-        const speed = this.velocity.length()
-        if (speed > 0.1) {
-            const turnFactor = this.isDrifting ? 2 : 1
-            const rotationAmount = this.velocity.x * this.config.turnSpeed * turnFactor * deltaTime
-            this.transform.rotateY(rotationAmount)
+            this.updateSmokeParticles()
         }
     }
 
     private updateWheelRotation(deltaTime: number): void {
-        const speed = this.velocity.length()
-        this.wheelRotation += speed * deltaTime
+        const physics = this.getComponent<PhysicsComponent>("physics")
+        if (!physics) return
+
+        const speed = physics.getVelocity().length()
         this.wheelMeshes.forEach(wheel => {
-            wheel.rotation.x = this.wheelRotation
+            wheel.rotation.x += speed * deltaTime
         })
     }
 
     private updateDriftTrail(): void {
-        const position = this.transform.getPosition()
-        const trailGeometry = this.driftTrail.geometry as THREE.BufferGeometry
-        const positions = trailGeometry.attributes.position.array as Float32Array
-
-        positions[0] = position.x
-        positions[1] = position.y
-        positions[2] = position.z
-
-        trailGeometry.attributes.position.needsUpdate = true
+        // 드리프트 트레일 업데이트
     }
 
     private updateSmokeParticles(): void {
-        if (!this.smokeParticles) return
+        // 연기 파티클 업데이트
+    }
 
-        const positions = this.smokeParticles.geometry.attributes.position.array as Float32Array
+    public setNightMode(isNightMode: boolean): void {
+        this.isNightMode = isNightMode
+        // 조명 업데이트
+    }
 
-        if (this.isDrifting || this.isBraking) {
-            for (let i = 0; i < positions.length; i += 3) {
-                positions[i] += (Math.random() - 0.5) * 0.1
-                positions[i + 1] += Math.random() * 0.1
-                positions[i + 2] += (Math.random() - 0.5) * 0.1
-            }
+    public override dispose(): void {
+        super.dispose()
+        this.wheelMeshes.forEach(wheel => wheel.geometry.dispose())
+        if (this.smokeParticles) this.smokeParticles.geometry.dispose()
+        if (this.driftTrail) this.driftTrail.geometry.dispose()
+    }
+
+    public getModel(): THREE.Group {
+        const modelComponent = this.getComponent<ModelComponent>("model")
+        if (!modelComponent) {
+            throw new Error("Model component not found")
         }
-
-        this.smokeParticles.geometry.attributes.position.needsUpdate = true
+        return modelComponent.getModel()
     }
 
     public override async initialize(): Promise<void> {
@@ -242,16 +177,17 @@ export class Car extends Entity {
                 throw new Error("Car model is null after loading")
             }
 
-            // 모델 설정
-            this.model.setModel(model)
+            const modelComponent = this.getComponent<ModelComponent>("model")
+            if (!modelComponent) {
+                throw new Error("Model component not found")
+            }
+
+            modelComponent.setModel(model)
             console.log("Model set to car component")
 
             if (model.children.length === 0) {
                 throw new Error("Car model has no children")
             }
-
-            this.mesh = model.children[0] as THREE.Mesh
-            console.log("Car mesh assigned:", this.mesh)
 
             // 모델 스케일 조정
             model.scale.set(1, 1, 1)
@@ -273,102 +209,63 @@ export class Car extends Entity {
     }
 
     private setupLights(): void {
+        const modelComponent = this.getComponent<ModelComponent>("model")
+        if (!modelComponent) return
+
+        const model = modelComponent.getModel()
         this.headlight = new THREE.SpotLight(0xffffff, 1, 100, Math.PI / 4, 0.5)
         this.headlight.position.set(0, 1, 2)
         this.headlight.target.position.set(0, 0, 10)
         this.headlight.castShadow = true
-        this.model.getModel().add(this.headlight)
-        this.model.getModel().add(this.headlight.target)
+        model.add(this.headlight)
+        model.add(this.headlight.target)
 
         this.taillight = new THREE.SpotLight(0xff0000, 0.5, 50, Math.PI / 4, 0.5)
         this.taillight.position.set(0, 1, -2)
         this.taillight.target.position.set(0, 0, -10)
         this.taillight.castShadow = true
-        this.model.getModel().add(this.taillight)
-        this.model.getModel().add(this.taillight.target)
+        model.add(this.taillight)
+        model.add(this.taillight.target)
     }
 
-    public override update(deltaTime: number): void {
-        super.update(deltaTime)
-        this.updateInput()
-        this.updatePhysics(deltaTime)
-        this.updateTerrainInteraction()
-        this.updateLights()
-        this.checkCollisions()
+    private setupSmokeParticles(): void {
+        const modelComponent = this.getComponent<ModelComponent>("model")
+        if (!modelComponent) return
+
+        const particleCount = 100
+        const particles = new Float32Array(particleCount * 3)
+        const particleGeometry = new THREE.BufferGeometry()
+        const particleMaterial = new THREE.PointsMaterial({
+            color: 0x888888,
+            size: 0.1,
+            transparent: true,
+            opacity: 0.5,
+        })
+
+        for (let i = 0; i < particleCount; i++) {
+            particles[i * 3] = 0
+            particles[i * 3 + 1] = 0
+            particles[i * 3 + 2] = 0
+        }
+
+        particleGeometry.setAttribute("position", new THREE.BufferAttribute(particles, 3))
+        this.smokeParticles = new THREE.Points(particleGeometry, particleMaterial)
+        modelComponent.getModel().add(this.smokeParticles)
     }
 
-    private updateTerrainInteraction(): void {
-        const position = this.transform.getPosition()
-        const height = this.terrainService.getHeightAt(position.x, position.y, position.z)
-        const normal = this.terrainService.getNormalAt(position.x, position.y, position.z)
+    private setupDriftTrail(): void {
+        const modelComponent = this.getComponent<ModelComponent>("model")
+        if (!modelComponent) return
 
-        // 지면 위에 약간의 여유 높이를 두어 파묻힘 방지
-        position.y = height + this.suspensionHeight + 0.1
-        this.transform.setPosition(position.x, position.y, position.z)
-
-        const up = new THREE.Vector3(0, 1, 0)
-        const quaternion = new THREE.Quaternion()
-        quaternion.setFromUnitVectors(up, normal)
-        this.transform.setRotationFromQuaternion(quaternion)
-    }
-
-    private updateLights(): void {
-        if (!this.headlight || !this.taillight) return // 조명이 초기화되지 않았으면 리턴
-        this.headlight.intensity = this.isNightMode ? 1 : 0
-        this.taillight.intensity = this.isBraking ? 1 : 0.5
+        const trailGeometry = new THREE.BufferGeometry()
+        const trailMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 })
+        this.driftTrail = new THREE.Line(trailGeometry, trailMaterial)
+        modelComponent.getModel().add(this.driftTrail)
     }
 
     public getSpeed(): number {
-        return this.velocity.length()
-    }
-
-    public getPosition(): THREE.Vector3 {
-        return this.transform.getPosition()
-    }
-
-    public getRotation(): THREE.Euler {
-        return this.transform.getRotation()
-    }
-
-    public getModel(): THREE.Group {
-        return this.model.getModel()
-    }
-
-    public setNightMode(isNightMode: boolean): void {
-        this.isNightMode = isNightMode
-    }
-
-    public setBraking(isBraking: boolean): void {
-        this.isBraking = isBraking
-    }
-
-    public setKeyState(key: string, state: boolean): void {
-        // this.keyStates[key] = state // 제거
-    }
-
-    private checkCollisions(): void {
-        const position = this.transform.getPosition()
-        this.raycaster.set(position, new THREE.Vector3(0, -1, 0))
-
-        const intersects = this.raycaster.intersectObjects(this.model.getModel().children)
-        if (intersects.length > 0) {
-            const obstructingObjects = intersects.filter(intersect => intersect.distance < 5).map(intersect => intersect.object)
-
-            if (obstructingObjects.length > 0) {
-                this.eventManager.emit("car:collision", obstructingObjects)
-            }
-
-            this.lastObstructingObjects = obstructingObjects
-        }
-    }
-
-    public override dispose(): void {
-        super.dispose()
-        this.model.dispose()
-        this.headlight.dispose()
-        this.taillight.dispose()
-        this.eventManager.dispose()
-        // window.removeEventListener("keydown", this.onKeyDown.bind(this))
-        // window.removeEventListener("keyup", this.onKeyUp.bind(this))
+        const physics = this.getComponent<PhysicsComponent>("physics")
+        if (!physics) return 0
+        return physics.getVelocity().length()
     }
 }

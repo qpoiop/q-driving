@@ -1,14 +1,32 @@
 import { System } from "../core/System"
 import { EventManager } from "../core/EventManager"
 
+export interface KeyMapping {
+    forward: string
+    backward: string
+    left: string
+    right: string
+    brake: string
+    handbrake: string
+}
+
 export class InputSystem extends System {
     private keys = new Set<string>()
     private touchDirection = { x: 0, y: 0 }
     private eventManager: EventManager
+    private keyMapping: KeyMapping
 
     constructor() {
         super("input")
         this.eventManager = new EventManager()
+        this.keyMapping = {
+            forward: "arrowup",
+            backward: "arrowdown",
+            left: "arrowleft",
+            right: "arrowright",
+            brake: "b",
+            handbrake: "space",
+        }
         console.log("[InputSystem] Initializing input system...")
 
         window.addEventListener("keydown", e => {
@@ -45,6 +63,14 @@ export class InputSystem extends System {
         const dx = (touch.clientX - w / 2) / w
         const dy = (touch.clientY - h / 2) / h
         this.touchDirection = { x: dx, y: dy }
+    }
+
+    public setKeyMapping(mapping: KeyMapping): void {
+        this.keyMapping = mapping
+    }
+
+    public getKeyMapping(): KeyMapping {
+        return this.keyMapping
     }
 
     public isKeyPressed(key: string): boolean {

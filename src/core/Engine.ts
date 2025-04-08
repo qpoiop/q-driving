@@ -97,6 +97,7 @@ export class Engine {
         this.systemManager.update(Time.getDeltaTime())
 
         // 엔티티 업데이트
+        console.log("[Engine] Updating entities...")
         this.entityManager.update(Time.getDeltaTime())
 
         // 카메라 업데이트
