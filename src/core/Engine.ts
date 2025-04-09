@@ -46,29 +46,10 @@ export class Engine {
             // 씬 초기화
             this.scene.background = new THREE.Color(0x87ceeb)
 
-            // 카메라 설정
-            this.camera.position.set(0, 5, 15) // 더 가깝게 조정
-            this.camera.lookAt(0, 0, 0)
-            this.camera.fov = 45 // 시야각 좁게 조정
-            this.camera.near = 0.1
-            this.camera.far = 1000
-            this.camera.updateProjectionMatrix()
-
             // 렌더러 설정
             this.renderer.setSize(window.innerWidth, window.innerHeight)
             this.renderer.setPixelRatio(window.devicePixelRatio)
-            this.renderer.shadowMap.enabled = true
-            this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
             container.appendChild(this.renderer.domElement)
-
-            // 기본 조명 설정
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5)
-            this.scene.add(ambientLight)
-
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5)
-            directionalLight.position.set(0, 1, 0)
-            directionalLight.castShadow = true
-            this.scene.add(directionalLight)
 
             // 시스템 매니저 초기화
             await this.systemManager.initialize()
@@ -97,7 +78,6 @@ export class Engine {
         this.systemManager.update(Time.getDeltaTime())
 
         // 엔티티 업데이트
-        console.log("[Engine] Updating entities...")
         this.entityManager.update(Time.getDeltaTime())
 
         // 카메라 업데이트
@@ -113,12 +93,12 @@ export class Engine {
 
     private updateCamera(): void {
         // 카메라 위치와 방향 업데이트 로직
-        // TODO: 카메라 추적 대상 엔티티를 설정하고 추적하는 로직 추가
+        // CameraController에서 처리
     }
 
     public setCameraTarget(target: THREE.Object3D): void {
         // 카메라 추적 대상 설정
-        // TODO: 카메라 추적 로직 구현
+        // CameraController에서 처리
     }
 
     public getScene(): THREE.Scene {

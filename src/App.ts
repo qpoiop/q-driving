@@ -9,7 +9,6 @@ import { Joystick } from "./ui/Joystick"
 import { LoadingScreen } from "./ui/LoadingScreen"
 import { ResourceManager } from "./core/ResourceManager"
 import { EventManager } from "./core/EventManager"
-import { TransformComponent } from "./components/TransformComponent"
 import { CameraMode } from "./core/CameraController"
 import { CarConfig } from "./config/CarConfig"
 import { CameraController } from "./core/CameraController"
@@ -30,13 +29,8 @@ export class App {
     private lastFpsTime: number = 0
     private fps: number = 0
 
-    // 카메라 추적
-    private prevCameraTarget: THREE.Vector3
-
     private hud: HUD
     private joystick: Joystick
-    private ambient: THREE.AmbientLight
-    private directional: THREE.DirectionalLight
 
     private engine: Engine
     private loadingScreen: LoadingScreen
@@ -55,6 +49,7 @@ export class App {
 
         this.renderer = this.engine.getRenderer()
         this.camera = this.engine.getCamera()
+        this.cameraController = this.engine.getCameraController()
 
         this.controls = new OrbitControls(this.camera, this.renderer.domElement)
         this.setupControls()
@@ -66,12 +61,6 @@ export class App {
         this.hud = new HUD()
         this.joystick = new Joystick()
 
-        this.ambient = new THREE.AmbientLight(0xffffff, 0.5)
-        this.directional = new THREE.DirectionalLight(0xffffff, 0.5)
-        this.directional.position.set(5, 5, 5)
-
-        this.prevCameraTarget = new THREE.Vector3()
-
         // animate 메서드를 바인딩
         this.animate = this.animate.bind(this)
     }
@@ -82,8 +71,11 @@ export class App {
     }
 
     private setupEventListeners(): void {
-        window.addEventListener("resize", this.onWindowResize.bind(this))
-        window.addEventListener("keydown", this.onKeyDown.bind(this))
+        this.onWindowResize = this.onWindowResize.bind(this)
+        this.onKeyDown = this.onKeyDown.bind(this)
+
+        window.addEventListener("resize", this.onWindowResize)
+        window.addEventListener("keydown", this.onKeyDown)
     }
 
     private onWindowResize(): void {
@@ -98,18 +90,26 @@ export class App {
             case "n":
                 this.toggleNightMode()
                 break
+            default:
+                return // 다른 키는 전파 허용
         }
+        // 'n' 키일 경우에만 이벤트 중단
+        event.stopPropagation()
     }
 
     private toggleNightMode(): void {
-        this.isNightMode = !this.isNightMode
-        this.sky.setNightMode(this.isNightMode)
-        this.ambient.intensity = this.isNightMode ? 0.1 : 0.5
-        this.directional.intensity = this.isNightMode ? 0.1 : 0.5
-        if (this.car) {
-            this.car.setNightMode(this.isNightMode)
+        if (this.cameraController) {
+            this.cameraController.toggleDayNight()
         }
+        if (this.car) {
+            // Car의 night mode 설정은 유지 (헤드라이트 등)
+            this.car.setNightMode(!this.isNightMode) // isNightMode는 아직 변경되지 않은 상태
+        }
+        // 톤 매핑 노출값 조정
         this.renderer.toneMappingExposure = this.isNightMode ? 0.5 : 0.75
+
+        // 상태 업데이트
+        this.isNightMode = !this.isNightMode
     }
 
     public async initialize(container: HTMLElement): Promise<void> {
@@ -132,22 +132,33 @@ export class App {
 
             await this.worldManager.initialize()
             console.log("World manager initialized")
+            this.loadingScreen.updateProgress(0.4)
 
             // 지형 디버깅
             const terrain = this.worldManager.getTerrain()
             if (!terrain) {
                 throw new Error("Terrain not initialized")
             }
+            this.loadingScreen.updateProgress(0.5)
 
             // 차량 초기화 및 디버깅
             const physicsConfig: PhysicsConfig = {
-                mass: 1000,
+                mass: 100,
                 drag: 0.1,
-                maxSpeed: 50,
-                acceleration: 1000,
-                deceleration: 2000,
+                maxSpeed: 80,
+                acceleration: 300,
+                deceleration: 200,
                 grip: 1.0,
-                turnSpeed: 1.0,
+                turnSpeed: 0.8,
+                momentOfInertia: 1000,
+                torqueCurve: [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+                gearRatios: [3.0, 2.0, 1.5, 1.0, 0.8, 0.6],
+                tireFriction: 1.5,
+                aerodynamicDrag: 0.3,
+                liftCoefficient: 0.1,
+                frontWheelDrive: true,
+                rearWheelDrive: false,
+                allWheelDrive: false,
             }
 
             const suspensionConfig: SuspensionConfig = {
@@ -155,21 +166,16 @@ export class App {
                 damping: 0.5,
                 compression: 0.1,
                 restLength: 2,
+                rollCenterHeight: 0.5,
+                antiRollBar: 0.3,
+                wheelRadius: 0.4,
+                wheelWidth: 0.3,
             }
 
             const carConfig: CarConfig = {
                 physics: physicsConfig,
                 suspension: suspensionConfig,
-                maxSpeed: 50,
-                acceleration: 1000,
-                deceleration: 2000,
-                turnSpeed: 1.0,
-                grip: 1.0,
                 driftFactor: 0.5,
-                suspensionStiffness: 100,
-                suspensionDamping: 0.5,
-                suspensionCompression: 0.1,
-                suspensionRestLength: 2,
                 rollInfluence: 0.5,
             }
 
@@ -178,35 +184,26 @@ export class App {
 
             // InputSystem 설정
             inputSystem.setKeyMapping({
-                forward: "arrowup",
-                backward: "arrowdown",
-                left: "arrowleft",
-                right: "arrowright",
+                forward: "ArrowUp",
+                backward: "ArrowDown",
+                left: "ArrowLeft",
+                right: "ArrowRight",
                 brake: "b",
-                handbrake: "space",
+                handbrake: " ",
             })
 
             this.car = new Car(terrain, carConfig, inputSystem)
             await this.car.initialize()
             this.engine.addEntity(this.car)
             console.log("Car initialized and added to engine")
+            this.loadingScreen.updateProgress(0.5)
 
-            // 차량 위치 디버깅
-            const carTransform = this.car.getComponent<TransformComponent>("transform")
-            if (carTransform) {
-                const height = terrain.getHeightAt(0, 0, 0)
-                console.log("Terrain height at car position:", height)
-                carTransform.setPosition(0, height + 2, 0) // 지면보다 2 단위 위에 위치
-                const position = carTransform.getPosition()
-                console.log("Car position after set:", position)
-
-                // 카메라가 차량을 제대로 보게 설정
-                const cameraController = this.engine.getCameraController()
-                cameraController.setMode(CameraMode.FOLLOW)
-                cameraController.setTarget(this.car.getModel())
-                cameraController.setSmoothFactor(0.1)
-                console.log("Camera controller set up for car")
-            }
+            // 카메라가 차량을 제대로 보게 설정
+            const cameraController = this.engine.getCameraController()
+            cameraController.setMode(CameraMode.FOLLOW)
+            cameraController.setTarget(this.car)
+            cameraController.setSmoothFactor(0.1)
+            console.log("Camera controller set up for car")
 
             // 씬에 객체 추가
             const carModel = this.car.getModel()
@@ -215,38 +212,26 @@ export class App {
             }
             console.log("Adding car model to scene:", carModel)
             this.scene.add(carModel)
+            this.loadingScreen.updateProgress(0.6)
             console.log("Car added to scene, total objects:", this.scene.children.length)
 
-            // 조명 설정 수정
-            this.directional.position.set(50, 50, 50)
-            this.directional.castShadow = true
-            this.directional.shadow.mapSize.width = 2048
-            this.directional.shadow.mapSize.height = 2048
-            this.directional.shadow.camera.near = 0.5
-            this.directional.shadow.camera.far = 500
-            this.directional.shadow.camera.left = -100
-            this.directional.shadow.camera.right = 100
-            this.directional.shadow.camera.top = 100
-            this.directional.shadow.camera.bottom = -100
-
-            // 조명 강도 증가
-            this.ambient.intensity = 1.0
-            this.directional.intensity = 1.0
-
+            // Sky 객체 추가
             this.sky.getMesh().scale.setScalar(10000)
             this.scene.add(this.sky.getMesh())
-            this.scene.add(this.ambient)
-            this.scene.add(this.directional)
-            console.log("Lights and sky added to scene")
-
-            await this.hud.initialize()
+            console.log("Sky added to scene")
             this.loadingScreen.updateProgress(0.8)
 
-            await this.joystick.initialize()
+            this.hud.initialize()
+            this.joystick.initialize()
             this.loadingScreen.updateProgress(0.9)
 
+            // 초기 렌더링 수행
+            this.engine.update()
+            this.loadingScreen.updateProgress(1)
+
+            this.loadingScreen.hide()
             this.isInitialized = true
-            console.log("Initialization complete")
+            console.log("App initialization complete")
 
             // 로딩 완료 처리
             this.loadingScreen.updateProgress(1.0)
@@ -254,11 +239,11 @@ export class App {
                 this.loadingScreen.hide()
             }, 500)
 
-            // 애니메이션 시작
+            // 애니메이션 루프 시작
             this.animate()
         } catch (error) {
-            console.error("Failed to initialize app:", error)
-            throw error
+            console.error("App initialization failed:", error)
+            this.loadingScreen.showError("Initialization failed")
         }
     }
 
@@ -266,7 +251,6 @@ export class App {
         requestAnimationFrame(this.animate.bind(this))
         this.engine.update()
         this.update()
-        this.render()
     }
 
     private update(): void {
@@ -288,15 +272,6 @@ export class App {
         }
     }
 
-    private render(): void {
-        if (!this.isInitialized) {
-            return
-        }
-
-        // 씬 렌더링
-        this.renderer.render(this.scene, this.camera)
-    }
-
     public dispose(): void {
         if (this.car) {
             this.car.dispose()
@@ -305,8 +280,8 @@ export class App {
         this.sky.dispose()
         this.worldManager.dispose()
         this.engine.dispose()
-        this.renderer.dispose()
         this.eventManager.dispose()
-        window.removeEventListener("resize", this.onWindowResize.bind(this))
+        window.removeEventListener("resize", this.onWindowResize)
+        window.removeEventListener("keydown", this.onKeyDown)
     }
 }

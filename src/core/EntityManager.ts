@@ -11,7 +11,7 @@ export class EntityManager {
     }
 
     public update(deltaTime: number): void {
-        // 엔티티 업데이트
+        // 엔티티 업데이트 (원래 로직)
         for (const entity of this.entities.values()) {
             entity.update(deltaTime)
         }

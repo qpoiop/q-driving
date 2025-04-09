@@ -30,11 +30,11 @@ export class HUD {
     }
 
     public updateSpeed(speed: number): void {
-        this.speedText.textContent = `Speed: ${speed.toFixed(1)} km/h`
+        this.speedText.innerHTML = `Speed: ${speed.toFixed(1)} km/h`
     }
 
     public updateFPS(fps: number): void {
-        this.fpsText.textContent = `FPS: ${fps}`
+        this.fpsText.innerHTML = `FPS: ${fps}`
     }
 
     public dispose(): void {

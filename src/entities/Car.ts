@@ -30,8 +30,27 @@ export class Car extends Entity {
         this.addComponent(new TransformComponent())
         this.addComponent(new ModelComponent(new THREE.Group()))
         this.addComponent(new PhysicsComponent(config.physics))
-        this.addComponent(new SuspensionComponent(config.suspension))
+        this.addComponent(
+            new SuspensionComponent(
+                config.suspension,
+                [
+                    { position: new THREE.Vector3(-1, 0, 1), radius: config.suspension.wheelRadius, width: config.suspension.wheelWidth },
+                    { position: new THREE.Vector3(1, 0, 1), radius: config.suspension.wheelRadius, width: config.suspension.wheelWidth },
+                    { position: new THREE.Vector3(-1, 0, -1), radius: config.suspension.wheelRadius, width: config.suspension.wheelWidth },
+                    { position: new THREE.Vector3(1, 0, -1), radius: config.suspension.wheelRadius, width: config.suspension.wheelWidth },
+                ],
+                this.terrainService,
+            ),
+        )
         this.addComponent(new InputComponent(inputSystem))
+
+        // --- Log Initial Velocity Right After PhysicsComponent Creation (Debug) ---
+        const initialPhysics = this.getComponent<PhysicsComponent>("physics")
+        if (initialPhysics) {
+            const v = initialPhysics.getVelocity()
+            console.log(`[Car Constructor] Initial Physics Velocity: ${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)}`)
+        }
+        // ----------------------------------------------------------------------
 
         // 이벤트 구독
         const eventManager = inputSystem.getEventManager()
@@ -65,8 +84,8 @@ export class Car extends Entity {
         if (!physics) return
 
         // 드리프트 시작 시 물리 속성 변경
-        physics.setGrip(this.config.grip * this.config.driftFactor)
-        physics.setTurnSpeed(this.config.turnSpeed * 1.5)
+        physics.setGrip(this.config.physics.grip * this.config.driftFactor)
+        physics.setTurnSpeed(this.config.physics.turnSpeed * 1.5)
     }
 
     private stopDrift(): void {
@@ -74,73 +93,23 @@ export class Car extends Entity {
         if (!physics) return
 
         // 드리프트 종료 시 물리 속성 복원
-        physics.setGrip(this.config.grip)
-        physics.setTurnSpeed(this.config.turnSpeed)
-    }
-
-    public override update(deltaTime: number): void {
-        super.update(deltaTime)
-
-        const input = this.getComponent<InputComponent>("input")
-        const physics = this.getComponent<PhysicsComponent>("physics")
-        const suspension = this.getComponent<SuspensionComponent>("suspension")
-        const transform = this.getComponent<TransformComponent>("transform")
-
-        if (!input || !physics || !suspension || !transform) return
-
-        // 입력 처리
-        const direction = input.getMovementDirection()
-        const moveDirection = new THREE.Vector3(direction.x, 0, direction.z)
-
-        if (moveDirection.lengthSq() > 0) {
-            moveDirection.normalize()
-        }
-
-        // 물리 적용
-        const targetVelocity = moveDirection.multiplyScalar(this.config.physics.maxSpeed)
-        const acceleration = input.isBraking() ? this.config.physics.deceleration : this.config.physics.acceleration
-        physics.applyForce(targetVelocity.multiplyScalar(acceleration), deltaTime)
-
-        // 서스펜션 처리
-        const position = transform.getPosition()
-        const terrainHeight = this.terrainService.getHeightAt(position.x, position.y, position.z)
-        const terrainNormal = this.terrainService.getNormalAt(position.x, position.y, position.z)
-
-        const suspensionForce = suspension.calculateForce(position.y - terrainHeight, terrainNormal)
-        physics.applyForce(suspensionForce, deltaTime)
-        suspension.setHeight(terrainHeight + this.config.suspension.restLength)
-
-        // 바퀴 회전 업데이트
-        this.updateWheelRotation(deltaTime)
-
-        // 드리프트 및 연기 효과
-        if (input.isHandbraking() && physics.getVelocity().length() > 5) {
-            this.updateDriftTrail()
-            this.updateSmokeParticles()
-        }
-    }
-
-    private updateWheelRotation(deltaTime: number): void {
-        const physics = this.getComponent<PhysicsComponent>("physics")
-        if (!physics) return
-
-        const speed = physics.getVelocity().length()
-        this.wheelMeshes.forEach(wheel => {
-            wheel.rotation.x += speed * deltaTime
-        })
-    }
-
-    private updateDriftTrail(): void {
-        // 드리프트 트레일 업데이트
-    }
-
-    private updateSmokeParticles(): void {
-        // 연기 파티클 업데이트
+        physics.setGrip(this.config.physics.grip)
+        physics.setTurnSpeed(this.config.physics.turnSpeed)
     }
 
     public setNightMode(isNightMode: boolean): void {
         this.isNightMode = isNightMode
-        // 조명 업데이트
+        // Update light visibility based on mode
+        if (this.headlight) {
+            this.headlight.visible = this.isNightMode
+            this.headlight.target.visible = this.isNightMode // Target might also need visibility toggle
+        }
+        if (this.taillight) {
+            // Taillights might always be visible, or only when braking/night
+            // For simplicity, let's toggle visibility with night mode for now
+            this.taillight.visible = this.isNightMode
+            this.taillight.target.visible = this.isNightMode
+        }
     }
 
     public override dispose(): void {
@@ -213,16 +182,21 @@ export class Car extends Entity {
         if (!modelComponent) return
 
         const model = modelComponent.getModel()
-        this.headlight = new THREE.SpotLight(0xffffff, 1, 100, Math.PI / 4, 0.5)
-        this.headlight.position.set(0, 1, 2)
-        this.headlight.target.position.set(0, 0, 10)
+        this.headlight = new THREE.SpotLight(0xffffff, 5, 100, Math.PI / 3.5, 0.3, 1)
+        this.headlight.position.set(0, 0.8, 1.5)
+        this.headlight.target.position.set(0, 0.5, 10)
         this.headlight.castShadow = true
+        this.headlight.shadow.mapSize.width = 1024
+        this.headlight.shadow.mapSize.height = 1024
+        this.headlight.shadow.camera.near = 0.5
+        this.headlight.shadow.camera.far = 100
+
         model.add(this.headlight)
         model.add(this.headlight.target)
 
-        this.taillight = new THREE.SpotLight(0xff0000, 0.5, 50, Math.PI / 4, 0.5)
-        this.taillight.position.set(0, 1, -2)
-        this.taillight.target.position.set(0, 0, -10)
+        this.taillight = new THREE.SpotLight(0xff0000, 3, 50, Math.PI / 4, 0.5, 2)
+        this.taillight.position.set(0, 0.8, -1.8)
+        this.taillight.target.position.set(0, 0.5, -10)
         this.taillight.castShadow = true
         model.add(this.taillight)
         model.add(this.taillight.target)
@@ -267,5 +241,36 @@ export class Car extends Entity {
         const physics = this.getComponent<PhysicsComponent>("physics")
         if (!physics) return 0
         return physics.getVelocity().length()
+    }
+
+    private updateWheelRotation(deltaTime: number): void {
+        const physics = this.getComponent<PhysicsComponent>("physics")
+        if (!physics) return
+
+        const speed = physics.getVelocity().length()
+        const direction = physics.getVelocity().normalize()
+
+        this.wheelMeshes.forEach((wheel, index) => {
+            // 바퀴 회전
+            wheel.rotation.x += speed * deltaTime
+
+            // 바퀴 스티어링
+            if (index < 2) {
+                // 전륜만
+                const input = this.getComponent<InputComponent>("input")
+                if (input) {
+                    const steerAngle = (input.getSteeringAngle() * Math.PI) / 4
+                    wheel.rotation.y = steerAngle
+                }
+            }
+        })
+    }
+
+    private updateDriftTrail(): void {
+        // 드리프트 트레일 업데이트
+    }
+
+    private updateSmokeParticles(): void {
+        // 연기 파티클 업데이트
     }
 }

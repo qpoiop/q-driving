@@ -1,5 +1,5 @@
 export * from "./Engine"
-export * from "./SceneManager"
+// export * from "./SceneManager"
 export * from "./ResourceManager"
 export * from "./EntityManager"
 export * from "./SystemManager"

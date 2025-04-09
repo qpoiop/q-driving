@@ -11,8 +11,8 @@ export class TransformComponent extends Component {
 
     constructor() {
         super("transform")
-        this.position = new THREE.Vector3()
-        this.rotation = new THREE.Euler()
+        this.position = new THREE.Vector3(0, 0, 0)
+        this.rotation = new THREE.Euler(0, 0, 0)
         this.scale = new THREE.Vector3(1, 1, 1)
         this.matrix = new THREE.Matrix4()
         this.matrixWorld = new THREE.Matrix4()
@@ -24,7 +24,7 @@ export class TransformComponent extends Component {
     }
 
     public override update(deltaTime: number): void {
-        // 업데이트 로직
+        this.updateMatrixWorld()
     }
 
     public override dispose(): void {
@@ -32,20 +32,22 @@ export class TransformComponent extends Component {
     }
 
     public getPosition(): THREE.Vector3 {
-        return this.position
+        return this.position.clone()
     }
 
     public setPosition(x: number, y: number, z: number): void {
+        console.log("[Transform] Setting position:", { x, y, z })
         this.position.set(x, y, z)
         this.updateMatrix()
+        console.log("[Transform] Matrix updated")
     }
 
     public getRotation(): THREE.Euler {
         return this.rotation
     }
 
-    public setRotation(x: number, y: number, z: number): void {
-        this.rotation.set(x, y, z)
+    public setRotation(rotation: THREE.Euler): void {
+        this.rotation.copy(rotation)
         this.updateMatrix()
     }
 

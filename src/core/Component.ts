@@ -1,38 +1,20 @@
 import { Entity } from "./Entity"
 
 export abstract class Component {
-    private _entity: Entity | null = null
-    protected name: string
+    protected entity: Entity | null = null
+    public type: string
 
-    constructor(name: string) {
-        this.name = name
+    constructor(type: string) {
+        this.type = type
     }
 
-    public get type(): string {
-        return this.name
+    setEntity(entity: Entity): void {
+        this.entity = entity
     }
 
-    public get entity(): Entity | null {
-        return this._entity
-    }
+    public async initialize?(): Promise<void> {}
 
-    public setEntity(entity: Entity): void {
-        this._entity = entity
-    }
+    public update?(deltaTime: number): void {}
 
-    public getName(): string {
-        return this.name
-    }
-
-    public async initialize?(): Promise<void> {
-        // 기본 구현은 비어있음
-    }
-
-    public update?(deltaTime: number): void {
-        // 기본 구현은 비어있음
-    }
-
-    public dispose?(): void {
-        // 기본 구현은 비어있음
-    }
+    public dispose?(): void {}
 }

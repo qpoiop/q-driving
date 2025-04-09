@@ -11,13 +11,19 @@ export class WorldManager implements ITerrainService {
     private terrain: Terrain | null = null
     private road: Road | null = null
     private scene: THREE.Scene
+    private renderer: THREE.WebGLRenderer
     private resourceManager: ResourceManager
     private environmentManager: EnvironmentManager | null = null
+    private isDay: boolean = true
+    private ambientLight: THREE.AmbientLight | null = null
+    private directionalLight: THREE.DirectionalLight | null = null
+    private fillLight: THREE.DirectionalLight | null = null
 
     private constructor() {
         const engine = Engine.getInstance()
         this.resourceManager = ResourceManager.getInstance()
         this.scene = engine.getScene()
+        this.renderer = engine.getRenderer()
     }
 
     public static getInstance(): WorldManager {
@@ -29,6 +35,9 @@ export class WorldManager implements ITerrainService {
 
     public async initialize(): Promise<void> {
         try {
+            // 환경 설정 (배경, 그림자 등)
+            this.setupEnvironment()
+
             // 지형 초기화
             const terrainConfig = {
                 width: 300, // 더 넓은 지형
@@ -39,11 +48,9 @@ export class WorldManager implements ITerrainService {
             }
             this.terrain = new Terrain(this, terrainConfig)
             await this.terrain.initialize()
-
-            // 지형을 원점에 위치시키기
             this.terrain.setPosition(-terrainConfig.width / 2, 0, -terrainConfig.height / 2)
 
-            // 도로 초기화 - 카메라 방향으로 직선
+            // 도로 초기화
             const roadConfig = {
                 width: 8, // 2차선 도로에 맞는 폭
                 segments: 200,
@@ -54,62 +61,104 @@ export class WorldManager implements ITerrainService {
             this.road = new Road(this, roadConfig)
             await this.road.initialize()
 
-            // 환경 매니저 초기화 및 환경 요소 추가
+            // 환경 매니저 초기화
             this.environmentManager = EnvironmentManager.getInstance(this, this.scene)
             await this.environmentManager.initialize()
 
             // 씬에 추가
             this.scene.add(this.terrain.getModel())
             const roadModel = this.road.getModel()
-            roadModel.position.y = 0 // 도로를 지면에 정확히 맞춤
+            roadModel.position.y = 0
             this.scene.add(roadModel)
 
             // 조명 설정
             this.setupLighting()
 
-            // 안개 효과 추가 - 멀리 있는 지형을 부드럽게 처리
-            this.scene.fog = new THREE.Fog(0x87ceeb, 250, 1000) // 안개 시작 거리 증가
+            // 안개 효과 추가
+            this.scene.fog = new THREE.Fog(0x87ceeb, 250, 1000)
         } catch (error) {
             console.error("Failed to initialize world:", error)
             throw error
         }
     }
 
-    private setupLighting(): void {
-        // 주변광
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
-        this.scene.add(ambientLight)
+    private setupEnvironment(): void {
+        // 하늘색 배경 설정
+        this.scene.background = new THREE.Color(0x87ceeb)
 
-        // 태양광
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
-        directionalLight.position.set(50, 100, 30)
-        directionalLight.castShadow = true
+        // 렌더러 그림자 설정
+        this.renderer.shadowMap.enabled = true
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
-        // 그림자 품질 향상
-        directionalLight.shadow.mapSize.width = 4096
-        directionalLight.shadow.mapSize.height = 4096
-        directionalLight.shadow.camera.near = 0.5
-        directionalLight.shadow.camera.far = 1000
-        directionalLight.shadow.camera.left = -500
-        directionalLight.shadow.camera.right = 500
-        directionalLight.shadow.camera.top = 500
-        directionalLight.shadow.camera.bottom = -500
-        directionalLight.shadow.bias = -0.0001
-
-        this.scene.add(directionalLight)
-
-        // 보조 조명 추가
-        const fillLight = new THREE.DirectionalLight(0xffffff, 0.4)
-        fillLight.position.set(-50, 50, -30)
-        this.scene.add(fillLight)
-
-        // 그림자 설정
+        // 그림자 받을 객체 설정
         this.scene.traverse(object => {
             if (object instanceof THREE.Mesh) {
-                object.castShadow = true
                 object.receiveShadow = true
             }
         })
+    }
+
+    private setupLighting(): void {
+        // 주변광
+        this.ambientLight = new THREE.AmbientLight(0xffffff, this.isDay ? 0.6 : 0.2)
+
+        // 태양광
+        this.directionalLight = new THREE.DirectionalLight(0xffffff, this.isDay ? 0.8 : 0.3)
+        this.directionalLight.position.set(50, 100, 30)
+        this.directionalLight.castShadow = true
+
+        // 그림자 품질 향상
+        this.directionalLight.shadow.mapSize.width = 4096
+        this.directionalLight.shadow.mapSize.height = 4096
+        this.directionalLight.shadow.camera.near = 0.5
+        this.directionalLight.shadow.camera.far = 1000
+        this.directionalLight.shadow.camera.left = -500
+        this.directionalLight.shadow.camera.right = 500
+        this.directionalLight.shadow.camera.top = 500
+        this.directionalLight.shadow.camera.bottom = -500
+        this.directionalLight.shadow.bias = -0.0001
+
+        // 조명 강도 증가
+        this.ambientLight.intensity = 1.0
+        this.directionalLight.intensity = 1.0
+
+        this.scene.add(this.ambientLight)
+        this.scene.add(this.directionalLight)
+
+        // 보조 조명 추가
+        this.fillLight = new THREE.DirectionalLight(0xffffff, this.isDay ? 0.4 : 0.1)
+        this.fillLight.position.set(-50, 50, -30)
+        this.scene.add(this.fillLight)
+
+        // 그림자 캐스팅할 객체 설정
+        this.scene.traverse(object => {
+            if (object instanceof THREE.Mesh) {
+                object.castShadow = true
+            }
+        })
+    }
+
+    public toggleDayNight(): void {
+        this.isDay = !this.isDay
+        if (this.ambientLight) {
+            this.ambientLight.intensity = this.isDay ? 0.6 : 0.2
+        }
+        if (this.directionalLight) {
+            this.directionalLight.intensity = this.isDay ? 0.8 : 0.3
+        }
+        if (this.fillLight) {
+            this.fillLight.intensity = this.isDay ? 0.4 : 0.1
+        }
+
+        // 안개 색상 변경 (밤에는 더 어둡게)
+        if (this.scene.fog instanceof THREE.Fog) {
+            this.scene.fog.color.setHex(this.isDay ? 0x87ceeb : 0x000033)
+        }
+        this.scene.background = new THREE.Color(this.isDay ? 0x87ceeb : 0x000011)
+
+        // TODO: Sky 객체 업데이트 필요
+        // const sky = this.scene.getObjectByName('sky');
+        // if (sky instanceof Sky) { sky.setNightMode(this.isNightMode); }
     }
 
     public getHeightAt(x: number, y: number, z: number): number {

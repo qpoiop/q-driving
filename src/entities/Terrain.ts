@@ -236,8 +236,8 @@ export class Terrain extends Entity implements ITerrainService {
         this.transform.setPosition(x, y, z)
     }
 
-    public setRotation(x: number, y: number, z: number): void {
-        this.transform.setRotation(x, y, z)
+    public setRotation(rotation: THREE.Euler): void {
+        this.transform.setRotation(rotation)
     }
 
     public setScale(x: number, y: number, z: number): void {

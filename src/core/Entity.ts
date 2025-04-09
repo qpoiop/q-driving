@@ -65,7 +65,9 @@ export abstract class Entity {
 
     public async initialize(): Promise<void> {
         for (const component of this._components.values()) {
-            await component.initialize()
+            if (component.initialize) {
+                await component.initialize()
+            }
         }
     }
 
@@ -73,13 +75,17 @@ export abstract class Entity {
         if (!this._active) return
 
         this._components.forEach(component => {
-            component.update(deltaTime)
+            if (component.update) {
+                component.update(deltaTime)
+            }
         })
     }
 
     public dispose(): void {
         this._components.forEach(component => {
-            component.dispose()
+            if (component.dispose) {
+                component.dispose()
+            }
         })
         this._components.clear()
         this._tags.clear()

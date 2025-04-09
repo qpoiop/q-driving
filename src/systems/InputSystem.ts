@@ -15,44 +15,37 @@ export class InputSystem extends System {
     private touchDirection = { x: 0, y: 0 }
     private eventManager: EventManager
     private keyMapping: KeyMapping
+    private keyDownHandler: (e: KeyboardEvent) => void
+    private keyUpHandler: (e: KeyboardEvent) => void
+    private touchStartHandler: (e: TouchEvent) => void
+    private touchMoveHandler: (e: TouchEvent) => void
+    private touchEndHandler: (e: TouchEvent) => void
 
     constructor() {
         super("input")
         this.eventManager = new EventManager()
         this.keyMapping = {
-            forward: "arrowup",
-            backward: "arrowdown",
-            left: "arrowleft",
-            right: "arrowright",
+            forward: "ArrowUp",
+            backward: "ArrowDown",
+            left: "ArrowLeft",
+            right: "ArrowRight",
             brake: "b",
-            handbrake: "space",
+            handbrake: " ",
         }
         console.log("[InputSystem] Initializing input system...")
 
-        window.addEventListener("keydown", e => {
-            console.log("[InputSystem] Key pressed:", e.key)
-            this.keys.add(e.key.toLowerCase())
-            this.eventManager.emit("input:keydown", e.key.toLowerCase())
-        })
+        // 이벤트 리스너 등록
+        this.keyDownHandler = this.handleKeyDown.bind(this)
+        this.keyUpHandler = this.handleKeyUp.bind(this)
+        this.touchStartHandler = this.onTouchStart.bind(this)
+        this.touchMoveHandler = this.onTouchMove.bind(this)
+        this.touchEndHandler = this.onTouchEnd.bind(this)
 
-        window.addEventListener("keyup", e => {
-            console.log("[InputSystem] Key released:", e.key)
-            this.keys.delete(e.key.toLowerCase())
-            this.eventManager.emit("input:keyup", e.key.toLowerCase())
-        })
-
-        window.addEventListener("touchstart", e => {
-            this.updateTouchDirection(e.touches[0])
-            this.eventManager.emit("input:touchstart", this.touchDirection)
-        })
-        window.addEventListener("touchmove", e => {
-            this.updateTouchDirection(e.touches[0])
-            this.eventManager.emit("input:touchmove", this.touchDirection)
-        })
-        window.addEventListener("touchend", () => {
-            this.touchDirection = { x: 0, y: 0 }
-            this.eventManager.emit("input:touchend", this.touchDirection)
-        })
+        window.addEventListener("keydown", this.keyDownHandler)
+        window.addEventListener("keyup", this.keyUpHandler)
+        window.addEventListener("touchstart", this.touchStartHandler)
+        window.addEventListener("touchmove", this.touchMoveHandler)
+        window.addEventListener("touchend", this.touchEndHandler)
 
         console.log("[InputSystem] Input system initialized")
     }
@@ -74,8 +67,7 @@ export class InputSystem extends System {
     }
 
     public isKeyPressed(key: string): boolean {
-        const isPressed = this.keys.has(key.toLowerCase())
-        console.log("[InputSystem] Checking key:", key, "isPressed:", isPressed)
+        const isPressed = this.keys.has(key)
         return isPressed
     }
 
@@ -92,13 +84,49 @@ export class InputSystem extends System {
     public override update(deltaTime: number): void {}
 
     public override dispose(): void {
-        window.removeEventListener("keydown", e => this.keys.add(e.key.toLowerCase()))
-        window.removeEventListener("keyup", e => this.keys.delete(e.key.toLowerCase()))
-        window.removeEventListener("touchstart", e => this.updateTouchDirection(e.touches[0]))
-        window.removeEventListener("touchmove", e => this.updateTouchDirection(e.touches[0]))
-        window.removeEventListener("touchend", () => {
-            this.touchDirection = { x: 0, y: 0 }
-        })
+        // 이벤트 리스너 제거
+        window.removeEventListener("keydown", this.keyDownHandler)
+        window.removeEventListener("keyup", this.keyUpHandler)
+        window.removeEventListener("touchstart", this.touchStartHandler)
+        window.removeEventListener("touchmove", this.touchMoveHandler)
+        window.removeEventListener("touchend", this.touchEndHandler)
+    }
+
+    private handleKeyDown(e: KeyboardEvent): void {
+        this.onKeyDown(e)
+    }
+
+    private handleKeyUp(e: KeyboardEvent): void {
+        this.onKeyUp(e)
+    }
+
+    private onKeyDown(e: KeyboardEvent): void {
+        this.keys.add(e.key)
+
+        this.eventManager.emit("input:keydown", e.key)
+        e.preventDefault() // 이벤트 전파 방지
+    }
+
+    private onKeyUp(e: KeyboardEvent): void {
+        this.keys.delete(e.key)
+
+        this.eventManager.emit("input:keyup", e.key)
+        e.preventDefault() // 이벤트 전파 방지
+    }
+
+    private onTouchStart(e: TouchEvent): void {
+        this.updateTouchDirection(e.touches[0])
+        this.eventManager.emit("input:touchstart", this.touchDirection)
+    }
+
+    private onTouchMove(e: TouchEvent): void {
+        this.updateTouchDirection(e.touches[0])
+        this.eventManager.emit("input:touchmove", this.touchDirection)
+    }
+
+    private onTouchEnd(e: TouchEvent): void {
+        this.touchDirection = { x: 0, y: 0 }
+        this.eventManager.emit("input:touchend", this.touchDirection)
     }
 
     public getEventManager(): EventManager {

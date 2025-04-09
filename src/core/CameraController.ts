@@ -1,4 +1,7 @@
 import * as THREE from "three"
+import { WorldManager } from "./WorldManager"
+import { Entity } from "./Entity"
+import { TransformComponent } from "../components/TransformComponent"
 
 export enum CameraMode {
     FREE,
@@ -8,72 +11,104 @@ export enum CameraMode {
 
 export class CameraController {
     private camera: THREE.PerspectiveCamera
-    private target: THREE.Object3D | null = null
+    private target: Entity | null = null
     private mode: CameraMode = CameraMode.FREE
-    private offset: THREE.Vector3 = new THREE.Vector3(0, 3, -8)
-    private smoothFactor: number = 0.05
-    private targetPosition: THREE.Vector3 = new THREE.Vector3()
-    private lookAtPosition: THREE.Vector3 = new THREE.Vector3()
-    private prevLookAtPosition: THREE.Vector3 = new THREE.Vector3()
+    private smoothFactor: number = 0.25
+    private lookAtOffset: THREE.Vector3 = new THREE.Vector3(0, 1, 0)
+    private followOffset: THREE.Vector3 = new THREE.Vector3(0, 2, -4)
+    private currentLookAt: THREE.Vector3 = new THREE.Vector3()
+    private isDay: boolean = true
+
+    // Quaternions for smooth lookAt interpolation
+    private currentCamQuat: THREE.Quaternion = new THREE.Quaternion()
 
     constructor(camera: THREE.PerspectiveCamera) {
         this.camera = camera
-        this.setupCamera()
+        this.initialize()
     }
 
-    private setupCamera(): void {
-        this.camera.position.set(0, 10, 20)
+    private initialize(): void {
+        this.camera.position.set(0, 5, 15)
         this.camera.lookAt(0, 0, 0)
-        this.camera.fov = 75
+        this.camera.fov = 45
         this.camera.near = 0.1
         this.camera.far = 1000
         this.camera.updateProjectionMatrix()
+        this.currentLookAt.copy(this.camera.position).add(new THREE.Vector3(0, 0, -1))
+        this.currentCamQuat.copy(this.camera.quaternion)
+    }
+
+    public toggleDayNight(): void {
+        WorldManager.getInstance().toggleDayNight()
+        this.isDay = !this.isDay
     }
 
     public setMode(mode: CameraMode): void {
         this.mode = mode
     }
 
-    public setTarget(target: THREE.Object3D): void {
+    public setTarget(target: Entity | null): void {
         this.target = target
-        if (target) {
-            // 초기 위치 설정
-            const position = target.position.clone()
-            this.lookAtPosition.copy(position)
-            this.prevLookAtPosition.copy(position)
+        if (this.target) {
+            const transform = this.target.getComponent<TransformComponent>("transform")
+            if (transform) {
+                const targetPosition = transform.getPosition()
+                this.currentLookAt.copy(targetPosition).add(this.lookAtOffset)
+            } else {
+                this.currentLookAt.copy(this.camera.position).add(new THREE.Vector3(0, 0, -1))
+            }
+        } else {
+            this.currentLookAt.copy(this.camera.position).add(new THREE.Vector3(0, 0, -1))
         }
-    }
-
-    public setOffset(offset: THREE.Vector3): void {
-        this.offset.copy(offset)
+        this.currentCamQuat.copy(this.camera.quaternion)
     }
 
     public setSmoothFactor(factor: number): void {
         this.smoothFactor = THREE.MathUtils.clamp(factor, 0, 1)
     }
 
+    public setFollowOffset(offset: THREE.Vector3): void {
+        this.followOffset.copy(offset)
+    }
+
+    public setLookAtOffset(offset: THREE.Vector3): void {
+        this.lookAtOffset.copy(offset)
+    }
+
     public update(deltaTime: number): void {
-        if (!this.target || this.mode !== CameraMode.FOLLOW) return
+        if (!this.target || this.mode !== CameraMode.FOLLOW) {
+            return
+        }
 
-        const position = this.target.position
-        const rotation = this.target.rotation
+        const transform = this.target.getComponent<TransformComponent>("transform")
+        if (!transform) {
+            console.warn("[CameraController] Target entity does not have a TransformComponent.")
+            return
+        }
 
-        // 카메라 오프셋 계산
-        const cameraOffset = this.offset.clone()
-        cameraOffset.applyEuler(new THREE.Euler(0, rotation.y, 0))
+        const targetPosition = transform.getPosition()
+        const targetQuaternion = transform.getQuaternion()
 
-        // 타겟 위치 계산
-        this.targetPosition.copy(position).add(cameraOffset)
-        this.camera.position.lerp(this.targetPosition, this.smoothFactor)
+        if (!this.currentLookAt.add(this.lookAtOffset).equals(targetPosition)) {
+            console.log("targetPosition", targetPosition)
+            console.log("cameraPosition", this.camera.position)
+            console.log("currentLookAt", this.currentLookAt)
 
-        // 시선 위치 계산
-        const lookAtOffset = new THREE.Vector3(0, 2, 20)
-        lookAtOffset.applyEuler(new THREE.Euler(0, rotation.y, 0))
-        this.lookAtPosition.copy(position).add(lookAtOffset)
+            const offset = this.followOffset.clone().applyQuaternion(targetQuaternion)
+            const cameraTarget = targetPosition.clone().add(offset)
 
-        // 부드러운 시선 이동
-        this.prevLookAtPosition.lerp(this.lookAtPosition, this.smoothFactor)
-        this.camera.lookAt(this.prevLookAtPosition)
+            this.camera.position.lerp(cameraTarget, this.smoothFactor)
+
+            this.currentCamQuat.slerp(
+                new THREE.Quaternion().setFromRotationMatrix(
+                    new THREE.Matrix4().lookAt(this.camera.position, targetPosition.clone().add(this.lookAtOffset), new THREE.Vector3(0, 1, 0)),
+                ),
+                this.smoothFactor,
+            )
+
+            this.camera.setRotationFromQuaternion(this.currentCamQuat)
+            this.currentLookAt.copy(targetPosition).add(this.lookAtOffset)
+        }
     }
 
     public onWindowResize(): void {
