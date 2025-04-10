@@ -185,9 +185,7 @@ export class WorldManager implements ITerrainService {
         return this.scene
     }
 
-    public update(deltaTime: number): void {
-        this.terrain?.update(deltaTime)
-        this.road?.update(deltaTime)
+    public update(): void {
         if (this.environmentManager) {
             const engine = Engine.getInstance()
             this.environmentManager.update(engine.getCamera().position)

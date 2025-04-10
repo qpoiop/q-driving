@@ -255,6 +255,7 @@ export class App {
     private animate(): void {
         requestAnimationFrame(this.animate.bind(this))
         this.engine.update()
+        this.worldManager.update()
         this.update()
     }
 

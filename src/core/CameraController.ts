@@ -90,10 +90,6 @@ export class CameraController {
         const targetQuaternion = transform.getQuaternion()
 
         if (!this.currentLookAt.add(this.lookAtOffset).equals(targetPosition)) {
-            console.log("targetPosition", targetPosition)
-            console.log("cameraPosition", this.camera.position)
-            console.log("currentLookAt", this.currentLookAt)
-
             const offset = this.followOffset.clone().applyQuaternion(targetQuaternion)
             const cameraTarget = targetPosition.clone().add(offset)
 

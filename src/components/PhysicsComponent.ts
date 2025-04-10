@@ -160,8 +160,6 @@ export class PhysicsComponent extends Component {
 
         if (!transform || !input || !suspension) return
 
-        console.log("velocity", this.velocity)
-
         // --- 1. Calculate Vehicle Basis Vectors ---
         const vehicleQuaternion = transform.getQuaternion()
         this._tempVehicleForward.set(0, 0, 1).applyQuaternion(vehicleQuaternion)
@@ -246,15 +244,14 @@ export class PhysicsComponent extends Component {
             .add(this._tempGravityForce)
             .add(this._tempRollingResistance)
 
-        // (로그 유지 - TireForce 로그 주석처리 또는 제거)
-        console.log("this._tempDriveForce", this._tempDriveForce)
-        console.log("this._tempBrakeForce", this._tempBrakeForce)
-        console.log("this._tempSuspensionSum", this._tempSuspensionSum)
-        console.log("this._tempAeroForce", this._tempAeroForce)
-        console.log("this._tempTireForce(Lateral)", this._tempTireForce) // 로그 복원
-        console.log("this._tempDragForce", this._tempDragForce)
-        console.log("this._tempGravityForce", this._tempGravityForce)
-        console.log("this._tempForce Sum", this._tempForce)
+        // console.log("this._tempDriveForce", this._tempDriveForce)
+        // console.log("this._tempBrakeForce", this._tempBrakeForce)
+        // console.log("this._tempSuspensionSum", this._tempSuspensionSum)
+        // console.log("this._tempAeroForce", this._tempAeroForce)
+        // console.log("this._tempTireForce(Lateral)", this._tempTireForce)
+        // console.log("this._tempDragForce", this._tempDragForce)
+        // console.log("this._tempGravityForce", this._tempGravityForce)
+        // console.log("this._tempForce Sum", this._tempForce)
 
         // --- 4. Update Velocity & Angular Velocity ---
         this._tempAccel.copy(this._tempForce).divideScalar(this.config.mass)

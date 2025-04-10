@@ -36,10 +36,8 @@ export class TransformComponent extends Component {
     }
 
     public setPosition(x: number, y: number, z: number): void {
-        console.log("[Transform] Setting position:", { x, y, z })
         this.position.set(x, y, z)
         this.updateMatrix()
-        console.log("[Transform] Matrix updated")
     }
 
     public getRotation(): THREE.Euler {
