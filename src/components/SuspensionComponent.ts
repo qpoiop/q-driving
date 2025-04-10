@@ -13,6 +13,8 @@ export interface SuspensionConfig {
     antiRollBar: number
     wheelRadius: number
     wheelWidth: number
+    rollPitchSensitivity: number
+    rollPitchSmoothingFactor: number
 }
 
 export interface WheelConfig {
@@ -85,10 +87,10 @@ export class SuspensionComponent extends Component {
             }
         }
 
-        const targetRollAngle = -totalRollForce * 0.0005
-        const targetPitchAngle = totalPitchForce * 0.0005
-        this.rollAngle = THREE.MathUtils.lerp(this.rollAngle, targetRollAngle, 0.1)
-        this.pitchAngle = THREE.MathUtils.lerp(this.pitchAngle, targetPitchAngle, 0.1)
+        const targetRollAngle = -totalRollForce * this.config.rollPitchSensitivity
+        const targetPitchAngle = totalPitchForce * this.config.rollPitchSensitivity
+        this.rollAngle = THREE.MathUtils.lerp(this.rollAngle, targetRollAngle, this.config.rollPitchSmoothingFactor)
+        this.pitchAngle = THREE.MathUtils.lerp(this.pitchAngle, targetPitchAngle, this.config.rollPitchSmoothingFactor)
     }
 
     public calculateAntiRollForce(wheelIndex1: number, wheelIndex2: number): number {

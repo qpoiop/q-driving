@@ -21,6 +21,9 @@ export interface PhysicsConfig {
     frontWheelDrive: boolean
     rearWheelDrive: boolean
     allWheelDrive: boolean
+    rollingResistanceCoefficient: number
+    backwardAccelerationFactor: number
+    tireStiffnessMultiplier: number
 }
 
 export class PhysicsComponent extends Component {
@@ -51,6 +54,7 @@ export class PhysicsComponent extends Component {
     private _tempRotationAxis = new THREE.Vector3()
     private _tempComposeScale = new THREE.Vector3()
     private _tempWheelWorldPos = new THREE.Vector3()
+    private _tempRollingResistance = new THREE.Vector3()
 
     constructor(config: PhysicsConfig) {
         super("physics")
@@ -96,43 +100,56 @@ export class PhysicsComponent extends Component {
         return this.config.torqueCurve[rpmIndex] * this.config.gearRatios[this.currentGear]
     }
 
+    /**
+     * 공기 역학적 힘(항력 및 양력)을 계산합니다.
+     * @returns {THREE.Vector3} 공기 역학적 힘 벡터
+     */
     public calculateAerodynamicForces(): THREE.Vector3 {
         const speed = this.velocity.length()
+        // 속도 제곱에 비례하는 항력 (속도 반대 방향)
         const dragForce = this.velocity
             .clone()
             .normalize()
             .multiplyScalar(-this.config.aerodynamicDrag * speed * speed)
+        // 속도 제곱에 비례하는 양력 (아래 방향으로 작용 가정)
         const liftForce = new THREE.Vector3(0, -this.config.liftCoefficient * speed * speed, 0)
         return dragForce.add(liftForce)
     }
 
+    /**
+     * 타이어의 측면 힘(횡력)을 계산합니다. 차량의 측면 미끄러짐을 억제합니다.
+     * @param {THREE.Vector3} vehicleForward 차량 전방 벡터
+     * @param {THREE.Vector3} vehicleRight 차량 우측 벡터
+     * @param {THREE.Vector3} vehicleUp 차량 상단 벡터 (현재 미사용)
+     * @returns {THREE.Vector3} 타이어 측면 힘 벡터
+     */
     public calculateTireForces(vehicleForward: THREE.Vector3, vehicleRight: THREE.Vector3, vehicleUp: THREE.Vector3): THREE.Vector3 {
         const speed = this.velocity.length()
-        // 저속에서는 측면 힘 거의 없음
-        if (speed < 0.2) return this._tempTireForce.set(0, 0, 0)
+        // 속도가 매우 낮으면 측면 힘 없음
+        if (speed < 0.1) return this._tempTireForce.set(0, 0, 0)
 
-        // 로컬 측면 속도 계산 (월드 속도를 차량의 오른쪽 벡터에 투영)
+        // 차량의 측면 속도 계산 (우측 벡터와의 내적)
         const lateralVelocity = this.velocity.dot(vehicleRight)
-
-        // 측면 슬립 각도 근사치 계산 (측면 속도에 비례하는 복원력 가정)
+        // 측면 슬립 계수 (측면 속도의 반대 방향)
         const lateralSlipFactor = -lateralVelocity
 
-        // 타이어 측면 강성 (튜닝 필요)
-        const tireStiffness = this.config.tireFriction * 50 // 예시 값
+        // 타이어 측면 강성 계산 (마찰 계수와 승수 사용)
+        const tireStiffness = this.config.tireFriction * this.config.tireStiffnessMultiplier
 
-        // 측면 힘 계산 (로컬 X축 방향 힘의 크기)
+        // 측면 힘 크기 계산 (슬립 * 강성)
         let lateralForceMagnitude = lateralSlipFactor * tireStiffness
 
-        // 속도에 따른 그립 감소 (간단화)
+        // 속도에 따른 그립 감소 효과 (고속에서 측면 힘 약화)
         const gripReduction = 1.0 - Math.min(1, speed / (this.config.maxSpeed * 1.5))
         lateralForceMagnitude *= 0.5 + gripReduction * 0.5
 
-        // 너무 강한 힘 제한 (튜닝 필요)
-        lateralForceMagnitude = THREE.MathUtils.clamp(lateralForceMagnitude, -this.config.mass * 5, this.config.mass * 5)
+        // 최대 측면 힘 제한 (물리적 한계 근사)
+        const maxLateralForce = this.config.mass * 9.81 * this.config.tireFriction * 0.8
+        lateralForceMagnitude = THREE.MathUtils.clamp(lateralForceMagnitude, -maxLateralForce, maxLateralForce)
 
         if (isNaN(lateralForceMagnitude)) lateralForceMagnitude = 0
 
-        // 최종 측면 힘 벡터 (월드 좌표계)
+        // 최종 측면 힘 벡터 계산 (차량 우측 벡터 방향)
         return this._tempTireForce.copy(vehicleRight).multiplyScalar(lateralForceMagnitude)
     }
 
@@ -165,23 +182,20 @@ export class PhysicsComponent extends Component {
                 this._tempDriveForce.copy(this._tempVehicleForward).multiplyScalar(this.config.acceleration)
             } else if (direction.z < 0) {
                 // Backward input
-                this._tempDriveForce.copy(this._tempVehicleForward).multiplyScalar(-this.config.acceleration * 0.5) // 약한 후진
+                this._tempDriveForce.copy(this._tempVehicleForward).multiplyScalar(-this.config.acceleration * this.config.backwardAccelerationFactor)
             }
         }
 
-        // Brake Force (방향 전환 제동 포함)
+        // Brake Force (방향 전환 제동, 저속 직접 감쇠 제거)
         this._tempBrakeForce.set(0, 0, 0)
         const isOppositeDirection = (direction.z > 0 && localZVelocity < -0.1) || (direction.z < 0 && localZVelocity > 0.1)
         const shouldBrake = input.isBraking() || (isOppositeDirection && currentSpeedSq > 0.1)
 
         if (shouldBrake) {
-            const brakeStrength = input.isBraking() ? this.config.deceleration : this.config.deceleration * 1.5 // 방향 전환 시 더 강하게
+            const brakeStrength = input.isBraking() ? this.config.deceleration : this.config.deceleration * 1.5
             if (currentSpeedSq > 0.01) {
+                // 속도가 아주 낮지 않으면 힘 적용
                 this._tempBrakeForce.copy(this._tempVelocityClone).normalize().multiplyScalar(-brakeStrength)
-            } else if (currentSpeedSq > 1e-6) {
-                // 속도가 아주 작을 때 정지 유도
-                // 힘 대신 직접 속도 감쇠 적용 (더 안정적일 수 있음)
-                this.velocity.multiplyScalar(Math.max(0, 1 - ((brakeStrength / this.config.mass) * deltaTime) / this.velocity.length()))
             }
         }
 
@@ -195,18 +209,30 @@ export class PhysicsComponent extends Component {
         // Aerodynamic Forces (기존 유지)
         this._tempAeroForce.copy(this.calculateAerodynamicForces())
 
-        // Tire Lateral Force (수정된 함수 호출)
+        // *** 복원: Tire Lateral Force 계산 ***
         this._tempTireForce.copy(this.calculateTireForces(this._tempVehicleForward, vehicleRight, vehicleUp))
 
-        // Drag Force (기존 유지)
+        // Drag Force (수정: currentGrip 영향 제거)
         this._tempDragForce.set(0, 0, 0)
         if (currentSpeedSq > 0.01) {
-            // Use currentSpeedSq here
-            this._tempDragForce.copy(this._tempVelocityClone).multiplyScalar(-this.config.drag * this.currentGrip)
+            // *** currentGrip 곱셈 제거 ***
+            this._tempDragForce.copy(this._tempVelocityClone).multiplyScalar(-this.config.drag)
         }
 
         // Gravity Force (기존 유지)
-        this._tempGravityForce.set(0, -9.81 * this.config.mass, 0)
+        const gravity = 9.81
+        this._tempGravityForce.set(0, -gravity * this.config.mass, 0)
+
+        // *** 추가: 구름 저항력 계산 ***
+        this._tempRollingResistance.set(0, 0, 0)
+        if (currentSpeedSq > 0.01) {
+            // 수직항력 근사 (평지 가정: 무게)
+            const normalForce = this.config.mass * gravity
+            const rollingResistanceMag = this.config.rollingResistanceCoefficient * normalForce
+            // 속도 반대 방향으로 적용
+            this._tempRollingResistance.copy(this._tempVelocityClone).normalize().multiplyScalar(-rollingResistanceMag)
+            console.log("Rolling resistance applied")
+        }
 
         // --- 3. Sum Forces ---
         this._tempForce
@@ -215,46 +241,46 @@ export class PhysicsComponent extends Component {
             .add(this._tempBrakeForce) // 브레이크 로직에서 직접 속도를 변경했다면 이 힘은 0일 수 있음
             .add(this._tempSuspensionSum)
             .add(this._tempAeroForce)
-            .add(this._tempTireForce) // 측면 힘
+            .add(this._tempTireForce) // *** 주석 해제 ***
             .add(this._tempDragForce)
             .add(this._tempGravityForce)
+            .add(this._tempRollingResistance)
 
-        // (로그 유지)
+        // (로그 유지 - TireForce 로그 주석처리 또는 제거)
         console.log("this._tempDriveForce", this._tempDriveForce)
         console.log("this._tempBrakeForce", this._tempBrakeForce)
         console.log("this._tempSuspensionSum", this._tempSuspensionSum)
         console.log("this._tempAeroForce", this._tempAeroForce)
-        console.log("this._tempTireForce(Lateral)", this._tempTireForce)
+        console.log("this._tempTireForce(Lateral)", this._tempTireForce) // 로그 복원
         console.log("this._tempDragForce", this._tempDragForce)
         console.log("this._tempGravityForce", this._tempGravityForce)
         console.log("this._tempForce Sum", this._tempForce)
 
         // --- 4. Update Velocity & Angular Velocity ---
         this._tempAccel.copy(this._tempForce).divideScalar(this.config.mass)
-        // 브레이크 로직에서 속도를 직접 변경하지 않았다면 여기서 힘을 적용
-        if (!shouldBrake || currentSpeedSq > 0.01) {
-            // 브레이크 힘으로 감속하는 경우
-            this.velocity.add(this._tempAccel.multiplyScalar(deltaTime))
-        }
+        // 브레이크 힘은 항상 합산된 _tempForce에 포함되므로, 여기서 항상 속도 업데이트
+        this.velocity.add(this._tempAccel.multiplyScalar(deltaTime))
 
-        // Angular Velocity (방향 전환 시 각속도 영향 감소 고려)
+        // Angular Velocity (전진/후진 조향 반전 문제 수정)
         let targetAngularVelocityY = 0
-        const speedForSteering = this.velocity.length()
+        const speedForSteering = Math.abs(localZVelocity)
         const steeringInput = direction.x
 
         if (steeringInput !== 0 && speedForSteering > 0.1) {
-            const speedFactor = Math.min(1, speedForSteering / 10)
-            // 방향 전환 중(isOppositeDirection)이거나 핸드브레이크 사용 시 회전율 증가 (튜닝 필요)
-            const turnMultiplier = input.isHandbraking() || isOppositeDirection ? 1.5 : 1.0
-            targetAngularVelocityY = -steeringInput * this.currentTurnSpeed * speedFactor * turnMultiplier * (Math.PI / 2)
+            const speedFactor = Math.min(1, speedForSteering / 12)
+            // *** 전진/후진 따라 조향 방향 결정 ***
+            const directionMultiplier = localZVelocity >= 0 ? -1.0 : 1.0
+            targetAngularVelocityY = directionMultiplier * steeringInput * this.currentTurnSpeed * speedFactor * (Math.PI / 2)
         } else {
-            targetAngularVelocityY = this.angularVelocity.y * 0.9 // Dampen
+            // 감쇠 유지 (0.9)
+            targetAngularVelocityY = this.angularVelocity.y * 0.9
         }
-        this.angularVelocity.y = THREE.MathUtils.lerp(this.angularVelocity.y, targetAngularVelocityY, 0.1) // Lerp 값 약간 증가 (0.05 -> 0.1)
+        // Lerp 값 증가 (0.05 -> 0.1) - 반응 속도 증가
+        this.angularVelocity.y = THREE.MathUtils.lerp(this.angularVelocity.y, targetAngularVelocityY, 0.1)
         this.angularVelocity.x = 0
         this.angularVelocity.z = 0
 
-        // 최종 정지 처리 (임계값 유지 또는 약간 조정)
+        // 최종 정지 처리 로직 유지 (임계값 약간 올림)
         const absoluteStopSpeedSqThreshold = 0.01 * 0.01
         if (this.velocity.lengthSq() < absoluteStopSpeedSqThreshold && this.angularVelocity.lengthSq() < 0.001) {
             this.velocity.set(0, 0, 0)
@@ -275,7 +301,7 @@ export class PhysicsComponent extends Component {
         const currentRotation = transform.getQuaternion()
 
         // 다음 위치 예측 (currentPosition 복제 필수!)
-        const positionDelta = this._tempAccel.copy(this.velocity).multiplyScalar(deltaTime)
+        const positionDelta = this._tempVelocityClone.copy(this.velocity).multiplyScalar(deltaTime)
         const nextPosition = currentPosition.clone().add(positionDelta)
 
         // 다음 회전 예측
