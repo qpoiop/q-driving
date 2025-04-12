@@ -153,7 +153,7 @@ export class App {
                 momentOfInertia: 1000, // 관성 모멘트 (회전 저항, 현재 미사용)
                 torqueCurve: [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000], // RPM별 엔진 토크 (현재 미사용)
                 gearRatios: [3.0, 2.0, 1.5, 1.0, 0.8, 0.6], // 기어비 (현재 미사용)
-                tireFriction: 2.0, // 타이어 마찰 계수 (횡력 계산에 영향)
+                tireFriction: 5.0, // 타이어 마찰 계수 (횡력 계산에 영향)
                 aerodynamicDrag: 0.3, // 공기 역학적 항력 계수 (속도 제곱 비례)
                 liftCoefficient: 0.5, // 양력 계수 (고속에서 차체를 누르거나 뜨게 함)
                 frontWheelDrive: true, // 전륜 구동 여부 (현재 미사용)

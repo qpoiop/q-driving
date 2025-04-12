@@ -62,8 +62,8 @@ export class WorldManager implements ITerrainService {
             await this.road.initialize()
 
             // 환경 매니저 초기화
-            this.environmentManager = EnvironmentManager.getInstance(this, this.scene)
-            await this.environmentManager.initialize()
+            // this.environmentManager = EnvironmentManager.getInstance(this, this.scene)
+            // await this.environmentManager.initialize()
 
             // 씬에 추가
             this.scene.add(this.terrain.getModel())
@@ -188,7 +188,7 @@ export class WorldManager implements ITerrainService {
     public update(): void {
         if (this.environmentManager) {
             const engine = Engine.getInstance()
-            this.environmentManager.update(engine.getCamera().position)
+            // this.environmentManager.update(engine.getCamera().position)
         }
     }
 
