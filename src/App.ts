@@ -14,6 +14,7 @@ import { CarConfig } from "./config/CarConfig"
 import { CameraController } from "./core/CameraController"
 import { PhysicsConfig } from "./components/PhysicsComponent"
 import { SuspensionConfig } from "./components/SuspensionComponent"
+import { InputSystem } from "./systems/InputSystem"
 
 export class App {
     private renderer: THREE.WebGLRenderer
@@ -185,7 +186,6 @@ export class App {
             }
 
             const inputSystem = this.engine.getInputSystem()
-            console.log("Creating car instance...")
 
             // InputSystem 설정
             inputSystem.setKeyMapping({
@@ -197,10 +197,13 @@ export class App {
                 handbrake: " ",
             })
 
-            this.car = new Car(terrain, carConfig, inputSystem)
-            await this.car.initialize()
-            this.engine.addEntity(this.car)
-            console.log("Car initialized and added to engine")
+            // Car 생성 로직을 WorldManager로 이동
+            // this.car = new Car(this.worldManager, carConfig, inputSystem)
+            // await this.car.initialize()
+            // this.engine.addEntity(this.car)
+            this.car = await this.worldManager.createCar(carConfig, inputSystem)
+            this.engine.addEntity(this.car) // Engine에는 여전히 Entity를 추가해야 함
+            console.log("Car initialized and added to engine (via WorldManager)")
             this.loadingScreen.updateProgress(0.5)
 
             // 카메라가 차량을 제대로 보게 설정
@@ -210,15 +213,15 @@ export class App {
             cameraController.setSmoothFactor(0.1)
             console.log("Camera controller set up for car")
 
-            // 씬에 객체 추가
-            const carModel = this.car.getModel()
-            if (!carModel) {
-                throw new Error("Car model not initialized")
-            }
-            console.log("Adding car model to scene:", carModel)
-            this.scene.add(carModel)
-            this.loadingScreen.updateProgress(0.6)
-            console.log("Car added to scene, total objects:", this.scene.children.length)
+            // 씬에 객체 추가 로직 제거 (WorldManager에서 처리)
+            // const carModel = this.car.getModel()
+            // if (!carModel) {
+            //     throw new Error("Car model not initialized")
+            // }
+            // console.log("Adding car model to scene:", carModel)
+            // this.scene.add(carModel)
+            // this.loadingScreen.updateProgress(0.6)
+            // console.log("Car added to scene, total objects:", this.scene.children.length)
 
             // Sky 객체 추가
             this.sky.getMesh().scale.setScalar(10000)
@@ -230,32 +233,32 @@ export class App {
             this.joystick.initialize()
             this.loadingScreen.updateProgress(0.9)
 
-            // 초기 렌더링 수행
-            this.engine.update()
+            // InputSystem에 Joystick 인스턴스 설정
+            if (inputSystem instanceof InputSystem) {
+                // 타입 확인
+                inputSystem.setJoystick(this.joystick)
+            }
+
+            // 셰이더 사전 컴파일 시도 (첫 업데이트 전에 수행)
+            console.log("Compiling shaders...")
+            console.time("ShaderCompilation")
+            this.renderer.compile(this.scene, this.camera)
+            console.timeEnd("ShaderCompilation")
+            console.log("Shaders compiled.")
             this.loadingScreen.updateProgress(1)
 
             this.loadingScreen.hide()
             this.isInitialized = true
             console.log("App initialization complete")
 
-            // 셰이더 사전 컴파일 시도
-            console.log("Compiling shaders...")
-            console.time("ShaderCompilation")
-            this.renderer.compile(this.scene, this.camera)
-            console.timeEnd("ShaderCompilation")
-            console.log("Shaders compiled.")
-
-            // 로딩 완료 처리
-            this.loadingScreen.updateProgress(1.0)
-            setTimeout(() => {
-                this.loadingScreen.hide()
-            }, 500)
-
-            // 애니메이션 루프 시작
-            this.animate()
+            this.animate() // 애니메이션 루프 시작
         } catch (error) {
             console.error("App initialization failed:", error)
-            this.loadingScreen.showError("Initialization failed")
+            this.loadingScreen.showError("Initialization failed. Please check the console.")
+            // 초기화 실패 시 추가 처리 (예: 사용자 알림)
+        } finally {
+            // 로딩 완료 후 로딩 화면 정리
+            // this.loadingScreen.hide(); // hide는 성공 시에만 호출되도록 위로 이동
         }
     }
 

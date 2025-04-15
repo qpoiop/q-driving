@@ -5,6 +5,7 @@ import { TransformComponent } from "../components/TransformComponent"
 import { ITerrainService } from "../core/ITerrainService"
 
 export class Rock extends Entity {
+    private static maxInstances: number = 0
     private static instancedMesh: THREE.InstancedMesh | null = null
     private static modelGeometry: THREE.BufferGeometry | null = null
     private static modelMaterial: THREE.Material | null = null
@@ -25,7 +26,8 @@ export class Rock extends Entity {
     }
 
     public static async initializeShared(terrainService: ITerrainService, maxInstances: number): Promise<void> {
-        if (this.isInitialized) return
+        if (Rock.instancedMesh) return
+        this.maxInstances = maxInstances
 
         try {
             const resourceManager = terrainService.getResourceManager()
@@ -55,6 +57,10 @@ export class Rock extends Entity {
             console.error("Failed to initialize Rock shared resources:", error)
             throw error
         }
+    }
+
+    public static getMaxInstances(): number {
+        return Rock.maxInstances
     }
 
     public static getInstancedMesh(): THREE.InstancedMesh | null {

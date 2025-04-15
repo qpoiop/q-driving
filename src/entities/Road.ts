@@ -104,6 +104,7 @@ export class Road extends Entity {
     }
 
     private async createMesh(): Promise<void> {
+        console.time("Road.createMesh") // 전체 함수 시간 측정 시작
         // 도로의 점들을 기반으로 평면 지오메트리 생성
         const roadLength = this.path.getLength()
         const geometry = new THREE.PlaneGeometry(this.config.width, roadLength, 1, this.config.segments)
@@ -112,6 +113,7 @@ export class Road extends Entity {
         geometry.rotateX(-Math.PI / 2)
 
         // 각 버텍스의 높이를 지형에 맞춤
+        console.time("Road.createMesh.vertexHeight") // 버텍스 높이 계산 시간 측정 시작
         const positions = geometry.attributes.position.array
         for (let i = 0; i < positions.length; i += 3) {
             const x = positions[i]
@@ -122,6 +124,7 @@ export class Road extends Entity {
             positions[i + 1] = averageHeight + 0.005 // 지형보다 0.005 높게 설정
         }
         geometry.computeVertexNormals()
+        console.timeEnd("Road.createMesh.vertexHeight") // 버텍스 높이 계산 시간 측정 종료
 
         // UV 좌표 업데이트
         const uvs = geometry.attributes.uv.array
@@ -214,6 +217,7 @@ export class Road extends Entity {
         group.add(rightEdge)
         group.add(centerLine)
         this.model.setModel(group)
+        console.timeEnd("Road.createMesh") // 전체 함수 시간 측정 종료
     }
 
     private getAverageHeightAt(x: number, z: number): number {
@@ -250,6 +254,33 @@ export class Road extends Entity {
 
     public getPoints(): THREE.Vector3[] {
         return this.points
+    }
+
+    /**
+     * 주어진 x, z 좌표가 도로 영역 내에 있는지 확인합니다.
+     * @param x 월드 X 좌표
+     * @param z 월드 Z 좌표
+     * @param checkWidth 확인할 도로 폭 (Padding 포함)
+     */
+    public isPointOnRoad(x: number, z: number, checkWidth?: number): boolean {
+        const roadWidth = checkWidth ?? this.config.width // checkWidth가 없으면 설정된 도로 폭 사용
+        const halfWidth = roadWidth / 2
+
+        // 도로는 현재 x=0 축을 따라 생성되므로, x 좌표만 비교
+        // 도로의 z 범위는 생성된 path의 범위를 따르지만, 여기서는 x축만 고려
+        if (Math.abs(x) < halfWidth) {
+            // z좌표도 도로 범위 내에 있는지 추가 확인 (Optional, 더 정확한 판정을 위해)
+            const roadLength = this.path.getLength() // path가 초기화된 후 사용 가능
+            if (z >= -roadLength / 2 && z <= roadLength / 2) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    public getWidth(): number {
+        return this.config.width
     }
 
     public getModel(): THREE.Group {

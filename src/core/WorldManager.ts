@@ -5,6 +5,10 @@ import { ResourceManager } from "./ResourceManager"
 import { ITerrainService } from "./ITerrainService"
 import { EnvironmentManager } from "./EnvironmentManager"
 import { Engine } from "./Engine"
+import { Car } from "../entities/Car"
+import { CarConfig } from "../config/CarConfig"
+import { InputSystem } from "../systems/InputSystem"
+import { TransformComponent } from "../components/TransformComponent"
 
 export class WorldManager implements ITerrainService {
     private static instance: WorldManager | null = null
@@ -18,6 +22,7 @@ export class WorldManager implements ITerrainService {
     private ambientLight: THREE.AmbientLight | null = null
     private directionalLight: THREE.DirectionalLight | null = null
     private fillLight: THREE.DirectionalLight | null = null
+    private car: Car | null = null
 
     private constructor() {
         const engine = Engine.getInstance()
@@ -57,10 +62,10 @@ export class WorldManager implements ITerrainService {
 
             // 도로 초기화
             const roadConfig = {
-                width: 8, // 2차선 도로에 맞는 폭
-                segments: 200,
-                curveRadius: 150, // 더 긴 도로
-                curveSegments: 32,
+                width: 8,
+                segments: 100,
+                curveRadius: 150,
+                curveSegments: 16,
                 textureRepeat: 20,
             }
             this.road = new Road(this, roadConfig)
@@ -90,6 +95,35 @@ export class WorldManager implements ITerrainService {
             console.error("Failed to initialize world:", error)
             throw error
         }
+    }
+
+    public async createCar(carConfig: CarConfig, inputSystem: InputSystem): Promise<Car> {
+        if (this.car) {
+            console.warn("Car already exists in WorldManager.")
+            return this.car
+        }
+
+        try {
+            console.log("[WorldManager] Creating car instance...")
+            this.car = new Car(this, carConfig, inputSystem)
+            await this.car.initialize()
+
+            const carModel = this.car.getModel()
+            if (!carModel) {
+                throw new Error("Car model not initialized after car.initialize()")
+            }
+            this.scene.add(carModel)
+
+            console.log("[WorldManager] Car created and added to scene.")
+            return this.car
+        } catch (error) {
+            console.error("[WorldManager] Failed to create car:", error)
+            throw error
+        }
+    }
+
+    public getCar(): Car | null {
+        return this.car
     }
 
     private setupEnvironment(): void {
@@ -152,6 +186,8 @@ export class WorldManager implements ITerrainService {
         }
         this.scene.background = new THREE.Color(this.isDay ? 0x87ceeb : 0x000011)
 
+        this.car?.setNightMode(this.isDay)
+
         // TODO: Sky 객체 업데이트 필요
         // const sky = this.scene.getObjectByName('sky');
         // if (sky instanceof Sky) { sky.setNightMode(this.isNightMode); }
@@ -184,15 +220,24 @@ export class WorldManager implements ITerrainService {
     public update(): void {
         if (this.environmentManager) {
             const engine = Engine.getInstance()
-            this.environmentManager.update(engine.getCamera().position)
+            const carPosition = this.car?.getComponent<TransformComponent>("transform")?.getPosition() || engine.getCamera().position
+            this.environmentManager.update(carPosition)
         }
     }
 
     public dispose(): void {
         this.terrain?.dispose()
         this.road?.dispose()
+        this.car?.dispose()
         this.environmentManager?.dispose()
         this.scene.clear()
         WorldManager.instance = null
+    }
+
+    /**
+     * 주어진 x, z 좌표가 도로 영역 내에 있는지 확인합니다.
+     */
+    public isPointOnRoad(x: number, z: number): boolean {
+        return this.road?.isPointOnRoad(x, z) ?? false
     }
 }

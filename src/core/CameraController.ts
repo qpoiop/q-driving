@@ -30,7 +30,7 @@ export class CameraController {
     private initialize(): void {
         this.camera.position.set(0, 5, 15)
         this.camera.lookAt(0, 0, 0)
-        this.camera.fov = 45
+        this.camera.fov = 55
         this.camera.near = 0.1
         this.camera.far = 1000
         this.camera.updateProjectionMatrix()

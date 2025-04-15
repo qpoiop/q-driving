@@ -1,5 +1,6 @@
 import { System } from "../core/System"
 import { EventManager } from "../core/EventManager"
+import { Joystick } from "../ui/Joystick"
 
 export interface KeyMapping {
     forward: string
@@ -12,14 +13,11 @@ export interface KeyMapping {
 
 export class InputSystem extends System {
     private keys = new Set<string>()
-    private touchDirection = { x: 0, y: 0 }
+    private joystick: Joystick | null = null
     private eventManager: EventManager
     private keyMapping: KeyMapping
     private keyDownHandler: (e: KeyboardEvent) => void
     private keyUpHandler: (e: KeyboardEvent) => void
-    private touchStartHandler: (e: TouchEvent) => void
-    private touchMoveHandler: (e: TouchEvent) => void
-    private touchEndHandler: (e: TouchEvent) => void
 
     constructor() {
         super("input")
@@ -37,25 +35,16 @@ export class InputSystem extends System {
         // 이벤트 리스너 등록
         this.keyDownHandler = this.handleKeyDown.bind(this)
         this.keyUpHandler = this.handleKeyUp.bind(this)
-        this.touchStartHandler = this.onTouchStart.bind(this)
-        this.touchMoveHandler = this.onTouchMove.bind(this)
-        this.touchEndHandler = this.onTouchEnd.bind(this)
 
         window.addEventListener("keydown", this.keyDownHandler)
         window.addEventListener("keyup", this.keyUpHandler)
-        window.addEventListener("touchstart", this.touchStartHandler)
-        window.addEventListener("touchmove", this.touchMoveHandler)
-        window.addEventListener("touchend", this.touchEndHandler)
 
         console.log("[InputSystem] Input system initialized")
     }
 
-    private updateTouchDirection(touch: Touch) {
-        const w = window.innerWidth
-        const h = window.innerHeight
-        const dx = (touch.clientX - w / 2) / w
-        const dy = (touch.clientY - h / 2) / h
-        this.touchDirection = { x: dx, y: dy }
+    public setJoystick(joystick: Joystick): void {
+        this.joystick = joystick
+        console.log("[InputSystem] Joystick set:", this.joystick)
     }
 
     public setKeyMapping(mapping: KeyMapping): void {
@@ -72,24 +61,25 @@ export class InputSystem extends System {
     }
 
     public getTouchDirection(): { x: number; y: number } {
-        return this.touchDirection
+        return this.joystick?.getDirection() ?? { x: 0, y: 0 }
     }
 
     public hasTouchInput(): boolean {
-        return this.touchDirection.x !== 0 || this.touchDirection.y !== 0
+        const dir = this.getTouchDirection()
+        return dir.x !== 0 || dir.y !== 0
     }
 
     public override async initialize(): Promise<void> {}
 
-    public override update(deltaTime: number): void {}
+    public override update(deltaTime: number): void {
+        // 필요하다면 여기서 joystick 값을 읽어 이벤트를 발생시킬 수도 있음
+        // 예: if (this.joystick) { this.eventManager.emit('joystick:move', this.joystick.getDirection()); }
+    }
 
     public override dispose(): void {
         // 이벤트 리스너 제거
         window.removeEventListener("keydown", this.keyDownHandler)
         window.removeEventListener("keyup", this.keyUpHandler)
-        window.removeEventListener("touchstart", this.touchStartHandler)
-        window.removeEventListener("touchmove", this.touchMoveHandler)
-        window.removeEventListener("touchend", this.touchEndHandler)
     }
 
     private handleKeyDown(e: KeyboardEvent): void {
@@ -112,21 +102,6 @@ export class InputSystem extends System {
 
         this.eventManager.emit("input:keyup", e.key)
         e.preventDefault() // 이벤트 전파 방지
-    }
-
-    private onTouchStart(e: TouchEvent): void {
-        this.updateTouchDirection(e.touches[0])
-        this.eventManager.emit("input:touchstart", this.touchDirection)
-    }
-
-    private onTouchMove(e: TouchEvent): void {
-        this.updateTouchDirection(e.touches[0])
-        this.eventManager.emit("input:touchmove", this.touchDirection)
-    }
-
-    private onTouchEnd(e: TouchEvent): void {
-        this.touchDirection = { x: 0, y: 0 }
-        this.eventManager.emit("input:touchend", this.touchDirection)
     }
 
     public getEventManager(): EventManager {

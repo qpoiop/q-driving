@@ -165,7 +165,6 @@ export class Car extends Entity {
             model.traverse(child => {
                 if (child instanceof THREE.Mesh) {
                     child.castShadow = true
-                    child.receiveShadow = true
                     console.log("Shadow settings applied to mesh:", child.name)
                 }
             })
