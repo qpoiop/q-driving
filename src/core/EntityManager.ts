@@ -11,9 +11,12 @@ export class EntityManager {
     }
 
     public update(deltaTime: number): void {
-        // 엔티티 업데이트 (원래 로직)
+        // 엔티티 업데이트
         for (const entity of this.entities.values()) {
+            const entityUpdateLabel = `Entity.update.${entity.constructor.name}.${entity.id}`
+            console.time(entityUpdateLabel)
             entity.update(deltaTime)
+            console.timeEnd(entityUpdateLabel)
         }
     }
 

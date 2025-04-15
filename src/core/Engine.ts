@@ -23,7 +23,10 @@ export class Engine {
         this.scene = new THREE.Scene()
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000)
         this.cameraController = new CameraController(this.camera)
-        this.renderer = new THREE.WebGLRenderer({ antialias: true })
+        this.renderer = new THREE.WebGLRenderer({
+            antialias: true,
+            powerPreference: "high-performance",
+        })
         this.entityManager = new EntityManager()
         this.systemManager = new SystemManager()
         this.inputSystem = new InputSystem()
@@ -70,25 +73,37 @@ export class Engine {
             console.warn("Engine not initialized")
             return
         }
+        console.time("Engine.update.total") // 엔진 전체 업데이트 시간
 
         // 시간 업데이트
+        console.time("Engine.TimeUpdate")
         Time.update()
+        console.timeEnd("Engine.TimeUpdate")
 
         // 시스템 업데이트
+        console.time("Engine.SystemUpdate")
         this.systemManager.update(Time.getDeltaTime())
+        console.timeEnd("Engine.SystemUpdate")
 
         // 엔티티 업데이트
+        console.time("Engine.EntityUpdate")
         this.entityManager.update(Time.getDeltaTime())
+        console.timeEnd("Engine.EntityUpdate")
 
         // 카메라 업데이트
+        console.time("Engine.CameraUpdate")
         this.cameraController.update(Time.getDeltaTime())
+        console.timeEnd("Engine.CameraUpdate")
 
         // 렌더링
         if (this.scene && this.camera) {
+            console.time("Engine.Renderer.render") // 렌더링 시간 측정 시작
             this.renderer.render(this.scene, this.camera)
+            console.timeEnd("Engine.Renderer.render") // 렌더링 시간 측정 종료
         } else {
             console.warn("Scene or camera not initialized")
         }
+        console.timeEnd("Engine.update.total") // 엔진 전체 업데이트 시간 종료
     }
 
     private updateCamera(): void {

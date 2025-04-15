@@ -48,7 +48,7 @@ export class Tree extends Entity {
 
                 this.modelGeometry = mesh.geometry
                 this.instancedMesh = new THREE.InstancedMesh(this.modelGeometry, this.modelMaterial, maxInstances)
-                this.instancedMesh.castShadow = true
+                this.instancedMesh.castShadow = false
                 this.instancedMesh.receiveShadow = true
 
                 resolve()

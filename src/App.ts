@@ -238,6 +238,13 @@ export class App {
             this.isInitialized = true
             console.log("App initialization complete")
 
+            // 셰이더 사전 컴파일 시도
+            console.log("Compiling shaders...")
+            console.time("ShaderCompilation")
+            this.renderer.compile(this.scene, this.camera)
+            console.timeEnd("ShaderCompilation")
+            console.log("Shaders compiled.")
+
             // 로딩 완료 처리
             this.loadingScreen.updateProgress(1.0)
             setTimeout(() => {
@@ -253,18 +260,40 @@ export class App {
     }
 
     private animate(): void {
-        requestAnimationFrame(this.animate.bind(this))
+        console.time("App.animate.frame") // 전체 프레임 시간 측정 시작
+        requestAnimationFrame(this.animate)
+
+        console.time("App.Engine.update") // App에서 Engine 업데이트 호출 시간
         this.engine.update()
-        this.worldManager.update()
+        console.timeEnd("App.Engine.update")
+
+        // WorldManager 업데이트는 주석 처리 가능성을 고려
+        // console.time("App.WorldManager.update");
+        // this.worldManager.update()
+        // console.timeEnd("App.WorldManager.update");
+
+        console.time("App.App.update") // App 자체 업데이트 시간
         this.update()
+        console.timeEnd("App.App.update")
+
+        // FPS 업데이트는 제외 (내부 로직이 간단)
+        // this.updateFPS()
+
+        console.timeEnd("App.animate.frame") // 전체 프레임 시간 측정 종료
     }
 
     private update(): void {
+        console.time("App.update.inner")
+
+        // WorldManager 업데이트 (EnvironmentManager 등 업데이트 포함)
+        this.worldManager.update()
+
+        // FPS 업데이트
         this.updateFPS()
+
+        // Update OrbitControls (might be disabled)
         this.controls.update()
-        if (this.car) {
-            this.hud.updateSpeed(this.car.getSpeed())
-        }
+        console.timeEnd("App.update.inner")
     }
 
     private updateFPS(): void {

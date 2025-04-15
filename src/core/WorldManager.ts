@@ -40,14 +40,19 @@ export class WorldManager implements ITerrainService {
 
             // 지형 초기화
             const terrainConfig = {
-                width: 300, // 더 넓은 지형
+                width: 300,
                 height: 300,
-                heightScale: 1.0, // 더 낮은 높이로 조정
-                segments: 128,
+                heightScale: 1.0,
+                segments: 64,
                 textureRepeat: 8,
             }
             this.terrain = new Terrain(this, terrainConfig)
             await this.terrain.initialize()
+            this.terrain.getModel().traverse(object => {
+                if (object instanceof THREE.Mesh) {
+                    object.receiveShadow = true
+                }
+            })
             this.terrain.setPosition(-terrainConfig.width / 2, 0, -terrainConfig.height / 2)
 
             // 도로 초기화
@@ -60,16 +65,21 @@ export class WorldManager implements ITerrainService {
             }
             this.road = new Road(this, roadConfig)
             await this.road.initialize()
+            const roadModel = this.road.getModel()
+            roadModel.traverse(object => {
+                if (object instanceof THREE.Mesh) {
+                    object.receiveShadow = true
+                }
+            })
+            roadModel.position.y = 0
+            this.scene.add(roadModel)
 
             // 환경 매니저 초기화
-            // this.environmentManager = EnvironmentManager.getInstance(this, this.scene)
-            // await this.environmentManager.initialize()
+            this.environmentManager = EnvironmentManager.getInstance(this, this.scene)
+            await this.environmentManager.initialize()
 
             // 씬에 추가
             this.scene.add(this.terrain.getModel())
-            const roadModel = this.road.getModel()
-            roadModel.position.y = 0
-            this.scene.add(roadModel)
 
             // 조명 설정
             this.setupLighting()
@@ -89,13 +99,6 @@ export class WorldManager implements ITerrainService {
         // 렌더러 그림자 설정
         this.renderer.shadowMap.enabled = true
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
-
-        // 그림자 받을 객체 설정
-        this.scene.traverse(object => {
-            if (object instanceof THREE.Mesh) {
-                object.receiveShadow = true
-            }
-        })
     }
 
     private setupLighting(): void {
@@ -107,9 +110,9 @@ export class WorldManager implements ITerrainService {
         this.directionalLight.position.set(50, 100, 30)
         this.directionalLight.castShadow = true
 
-        // 그림자 품질 향상
-        this.directionalLight.shadow.mapSize.width = 4096
-        this.directionalLight.shadow.mapSize.height = 4096
+        // 그림자 품질 향상 -> 해상도 감소
+        this.directionalLight.shadow.mapSize.width = 2048
+        this.directionalLight.shadow.mapSize.height = 2048
         this.directionalLight.shadow.camera.near = 0.5
         this.directionalLight.shadow.camera.far = 1000
         this.directionalLight.shadow.camera.left = -500
@@ -125,17 +128,10 @@ export class WorldManager implements ITerrainService {
         this.scene.add(this.ambientLight)
         this.scene.add(this.directionalLight)
 
-        // 보조 조명 추가
+        // 보조 조명 추가 (Fill light probably doesn't need shadow)
         this.fillLight = new THREE.DirectionalLight(0xffffff, this.isDay ? 0.4 : 0.1)
         this.fillLight.position.set(-50, 50, -30)
         this.scene.add(this.fillLight)
-
-        // 그림자 캐스팅할 객체 설정
-        this.scene.traverse(object => {
-            if (object instanceof THREE.Mesh) {
-                object.castShadow = true
-            }
-        })
     }
 
     public toggleDayNight(): void {
@@ -188,7 +184,7 @@ export class WorldManager implements ITerrainService {
     public update(): void {
         if (this.environmentManager) {
             const engine = Engine.getInstance()
-            // this.environmentManager.update(engine.getCamera().position)
+            this.environmentManager.update(engine.getCamera().position)
         }
     }
 

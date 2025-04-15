@@ -46,7 +46,7 @@ export class Rock extends Entity {
             if (rockMesh && this.modelMaterial) {
                 this.modelGeometry = rockMesh.geometry
                 this.instancedMesh = new THREE.InstancedMesh(this.modelGeometry, this.modelMaterial, maxInstances)
-                this.instancedMesh.castShadow = true
+                this.instancedMesh.castShadow = false
                 this.instancedMesh.receiveShadow = true
             }
 

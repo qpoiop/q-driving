@@ -46,7 +46,7 @@ export class Bush extends Entity {
             if (bushMesh && this.modelMaterial) {
                 this.modelGeometry = bushMesh.geometry
                 this.instancedMesh = new THREE.InstancedMesh(this.modelGeometry, this.modelMaterial, maxInstances)
-                this.instancedMesh.castShadow = true
+                this.instancedMesh.castShadow = false
                 this.instancedMesh.receiveShadow = true
             }
 

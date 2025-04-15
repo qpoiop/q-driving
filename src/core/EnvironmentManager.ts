@@ -17,11 +17,11 @@ export class EnvironmentManager {
     private terrainService: ITerrainService
     private scene: THREE.Scene
 
-    // LOD 관련 설정
+    // LOD 관련 설정 (가시 거리 증가)
     private readonly LOD_LEVELS = {
-        HIGH: 100, // 100m 이내: 고품질
-        MEDIUM: 200, // 200m 이내: 중품질
-        LOW: 400, // 400m 이내: 저품질
+        HIGH: 150, // 근거리 기준도 약간 늘림
+        MEDIUM: 300, // 중거리 기준도 약간 늘림
+        LOW: 800, // 원거리 기준(컬링 거리)을 400 -> 800으로 늘림
     }
 
     // 오브젝트 풀
@@ -48,10 +48,10 @@ export class EnvironmentManager {
     }
 
     public async initialize(): Promise<void> {
-        // 공유 리소스 초기화
-        await Tree.initializeShared(this.terrainService, 1000)
-        await Rock.initializeShared(this.terrainService, 500)
-        await Bush.initializeShared(this.terrainService, 800)
+        // 공유 리소스 초기화 (수량 감소)
+        await Tree.initializeShared(this.terrainService, 500) // 1000 -> 500
+        await Rock.initializeShared(this.terrainService, 200) // 500 -> 200
+        await Bush.initializeShared(this.terrainService, 300) // 800 -> 300
 
         // 인스턴스 메시를 씬에 추가
         const treeInstancedMesh = Tree.getInstancedMesh()
@@ -69,11 +69,19 @@ export class EnvironmentManager {
         const terrainSize = 1000
         const halfSize = terrainSize / 2
 
+        // 목표 생성 수량 정의 (maxInstances 와 맞춤)
+        const maxTrees = 500
+        const maxRocks = 200
+        const maxBushes = 300
+
         let treeCount = 0
         let rockCount = 0
         let bushCount = 0
 
-        for (let i = 0; i < 1000; i++) {
+        // 루프 횟수도 적절히 조정 가능 (예: max * 1.5 정도)
+        const totalAttempts = Math.max(maxTrees, maxRocks, maxBushes) * 1.5
+
+        for (let i = 0; i < totalAttempts; i++) {
             const x = Math.random() * terrainSize - halfSize
             const z = Math.random() * terrainSize - halfSize
             const y = this.terrainService.getHeightAt(x, 0, z)
@@ -88,25 +96,25 @@ export class EnvironmentManager {
             const rotation = new THREE.Euler().setFromQuaternion(quaternion)
             rotation.y = Math.random() * Math.PI * 2 // Y축 회전만 랜덤하게 추가
 
-            if (Math.random() > 0.7 && treeCount < 1000) {
+            if (Math.random() > 0.7 && treeCount < maxTrees) {
                 const tree = new Tree(this.terrainService)
-                await tree.initialize()
+                // await tree.initialize() // <- 제거: 불필요한 개별 초기화
                 tree.setInstanceId(treeCount++)
 
                 const scale = new THREE.Vector3(1.5 + Math.random() * 1, 1.5 + Math.random() * 1, 1.5 + Math.random() * 1)
 
                 this.trees.push({ entity: tree, position, scale, rotation, distance: 0 })
-            } else if (Math.random() > 0.5 && rockCount < 500) {
+            } else if (Math.random() > 0.5 && rockCount < maxRocks) {
                 const rock = new Rock(this.terrainService)
-                await rock.initialize()
+                // await rock.initialize() // <- 제거: 불필요한 개별 초기화
                 rock.setInstanceId(rockCount++)
 
                 const scale = new THREE.Vector3(0.8 + Math.random() * 0.4, 0.8 + Math.random() * 0.4, 0.8 + Math.random() * 0.4)
 
                 this.rocks.push({ entity: rock, position, scale, rotation, distance: 0 })
-            } else if (bushCount < 800) {
+            } else if (bushCount < maxBushes) {
                 const bush = new Bush(this.terrainService)
-                await bush.initialize()
+                // await bush.initialize() // <- 제거: 불필요한 개별 초기화
                 bush.setInstanceId(bushCount++)
 
                 const scale = new THREE.Vector3(0.5 + Math.random() * 0.3, 0.5 + Math.random() * 0.3, 0.5 + Math.random() * 0.3)

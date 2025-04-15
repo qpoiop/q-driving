@@ -153,7 +153,7 @@ export class Road extends Entity {
 
         this.mesh = new THREE.Mesh(geometry, material)
         this.mesh.receiveShadow = true
-        this.mesh.castShadow = true
+        this.mesh.castShadow = false
 
         // 도로 가장자리 생성 (왼쪽)
         const leftEdgeGeometry = new THREE.PlaneGeometry(0.3, roadLength, 1, this.config.segments)
@@ -175,6 +175,8 @@ export class Road extends Entity {
 
         const leftEdge = new THREE.Mesh(leftEdgeGeometry, edgeMaterial)
         const rightEdge = new THREE.Mesh(rightEdgeGeometry, edgeMaterial)
+        leftEdge.receiveShadow = true
+        rightEdge.receiveShadow = true
 
         // 중앙선 생성
         const centerLineGeometry = new THREE.PlaneGeometry(0.15, roadLength, 1, this.config.segments)
@@ -202,6 +204,7 @@ export class Road extends Entity {
             this.updateGeometryHeight(dashGeometry)
 
             const dash = new THREE.Mesh(dashGeometry, centerLineMaterial)
+            dash.receiveShadow = true
             centerLine.add(dash)
         }
 

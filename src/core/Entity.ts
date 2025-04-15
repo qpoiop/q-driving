@@ -74,11 +74,14 @@ export abstract class Entity {
     public update(deltaTime: number): void {
         if (!this._active) return
 
-        this._components.forEach(component => {
-            if (component.update) {
+        for (const component of this._components.values()) {
+            if (typeof component.update === "function") {
+                const componentUpdateLabel = `Component.update.${component.constructor.name}.${this.id}`
+                console.time(componentUpdateLabel)
                 component.update(deltaTime)
+                console.timeEnd(componentUpdateLabel)
             }
-        })
+        }
     }
 
     public dispose(): void {
