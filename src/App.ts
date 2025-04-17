@@ -129,7 +129,6 @@ export class App {
 
             await this.resourceManager.initialize()
             console.log("Resource manager initialized")
-            this.loadingScreen.updateProgress(0.3)
 
             await this.worldManager.initialize()
             console.log("World manager initialized")
@@ -140,7 +139,6 @@ export class App {
             if (!terrain) {
                 throw new Error("Terrain not initialized")
             }
-            this.loadingScreen.updateProgress(0.5)
 
             // 차량 초기화 및 디버깅
             const physicsConfig: PhysicsConfig = {
@@ -154,13 +152,13 @@ export class App {
                 momentOfInertia: 1000, // 관성 모멘트 (회전 저항, 현재 미사용)
                 torqueCurve: [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000], // RPM별 엔진 토크 (현재 미사용)
                 gearRatios: [3.0, 2.0, 1.5, 1.0, 0.8, 0.6], // 기어비 (현재 미사용)
-                tireFriction: 5.0, // 타이어 마찰 계수 (횡력 계산에 영향)
+                tireFriction: 10, // 타이어 마찰 계수 (횡력 계산에 영향)
                 aerodynamicDrag: 0.3, // 공기 역학적 항력 계수 (속도 제곱 비례)
                 liftCoefficient: 0.5, // 양력 계수 (고속에서 차체를 누르거나 뜨게 함)
                 frontWheelDrive: true, // 전륜 구동 여부 (현재 미사용)
                 rearWheelDrive: false, // 후륜 구동 여부 (현재 미사용)
                 allWheelDrive: false, // 사륜 구동 여부 (현재 미사용)
-                rollingResistanceCoefficient: 0.015, // 구름 저항 계수 (저속 감속에 중요)
+                rollingResistanceCoefficient: 0.05, // 구름 저항 계수 (저속 감속에 중요)
                 backwardAccelerationFactor: 0.7, // 후진 가속력 비율 (기본 가속력 대비)
                 tireStiffnessMultiplier: 50, // 타이어 측면 강성 승수 (횡력 계산에 영향)
             }
@@ -201,10 +199,10 @@ export class App {
             // this.car = new Car(this.worldManager, carConfig, inputSystem)
             // await this.car.initialize()
             // this.engine.addEntity(this.car)
+            this.loadingScreen.updateProgress(0.6)
             this.car = await this.worldManager.createCar(carConfig, inputSystem)
             this.engine.addEntity(this.car) // Engine에는 여전히 Entity를 추가해야 함
             console.log("Car initialized and added to engine (via WorldManager)")
-            this.loadingScreen.updateProgress(0.5)
 
             // 카메라가 차량을 제대로 보게 설정
             const cameraController = this.engine.getCameraController()
@@ -212,6 +210,7 @@ export class App {
             cameraController.setTarget(this.car)
             cameraController.setSmoothFactor(0.1)
             console.log("Camera controller set up for car")
+            this.loadingScreen.updateProgress(0.8)
 
             // 씬에 객체 추가 로직 제거 (WorldManager에서 처리)
             // const carModel = this.car.getModel()
@@ -227,11 +226,9 @@ export class App {
             this.sky.getMesh().scale.setScalar(10000)
             this.scene.add(this.sky.getMesh())
             console.log("Sky added to scene")
-            this.loadingScreen.updateProgress(0.8)
 
             this.hud.initialize()
             this.joystick.initialize()
-            this.loadingScreen.updateProgress(0.9)
 
             // InputSystem에 Joystick 인스턴스 설정
             if (inputSystem instanceof InputSystem) {
@@ -239,13 +236,13 @@ export class App {
                 inputSystem.setJoystick(this.joystick)
             }
 
+            this.loadingScreen.updateProgress(0.9)
             // 셰이더 사전 컴파일 시도 (첫 업데이트 전에 수행)
             console.log("Compiling shaders...")
             console.time("ShaderCompilation")
             this.renderer.compile(this.scene, this.camera)
             console.timeEnd("ShaderCompilation")
             console.log("Shaders compiled.")
-            this.loadingScreen.updateProgress(1)
 
             this.loadingScreen.hide()
             this.isInitialized = true
