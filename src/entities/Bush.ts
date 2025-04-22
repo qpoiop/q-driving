@@ -2,14 +2,13 @@ import * as THREE from "three"
 import { Entity } from "../core/Entity"
 import { ModelComponent } from "../components/ModelComponent"
 import { TransformComponent } from "../components/TransformComponent"
-import { ITerrainService } from "../core/ITerrainService"
 import { ResourceManager } from "../core/ResourceManager"
 
 export class Bush extends Entity {
     // --- Static Configuration ---
     public static readonly MODEL_PATH = "models/bush/bush01.glb"
     public static readonly MODEL_NAME = "bush"
-    public static readonly MAX_INSTANCES = 300 // External config preferred
+    public static readonly MAX_INSTANCES = 300
     public static readonly CAST_SHADOW = true
     public static readonly RECEIVE_SHADOW = true
     // ---------------------------
@@ -23,47 +22,75 @@ export class Bush extends Entity {
     private transform: TransformComponent
     private model: ModelComponent
     private instanceId: number = -1
-    private terrainService: ITerrainService
 
-    constructor(terrainService: ITerrainService) {
+    constructor(instanceId: number) {
         super()
-        this.terrainService = terrainService
         this.transform = new TransformComponent()
         this.model = new ModelComponent()
         this.addComponent(this.transform)
         this.addComponent(this.model)
+        this.setInstanceId(instanceId)
     }
 
     public static async initializeShared(resourceManager: ResourceManager): Promise<void> {
-        if (Bush.instancedMesh) return
-        if (this.loadPromise) return this.loadPromise
+        console.log(`Bush (${Bush.MODEL_NAME}): Initializing shared resources...`)
+        if (Bush.instancedMesh) {
+            console.log(`Bush (${Bush.MODEL_NAME}): Already initialized.`)
+            return
+        }
+        if (this.loadPromise) {
+            console.log(`Bush (${Bush.MODEL_NAME}): Initialization already in progress.`)
+            return this.loadPromise
+        }
 
         this.loadPromise = new Promise<void>(async (resolve, reject) => {
             try {
+                console.log(`Bush (${Bush.MODEL_NAME}): Loading model...`)
                 const model = await resourceManager.loadModel(Bush.MODEL_NAME, Bush.MODEL_PATH)
+                model.updateMatrixWorld(true)
+                console.log(`Bush (${Bush.MODEL_NAME}): Model loaded.`)
 
-                let mesh: THREE.Mesh | null = null
+                let foundMesh: THREE.Mesh | null = null
+                let foundMaterial: THREE.Material | null = null
+
+                console.log(`Bush (${Bush.MODEL_NAME}): Traversing model for the first valid mesh...`)
                 model.traverse(child => {
-                    if (child instanceof THREE.Mesh && !mesh) {
-                        mesh = child
-                        this.modelMaterial = child.material
+                    if (!foundMesh && child instanceof THREE.Mesh && child.geometry) {
+                        foundMesh = child as THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]>
+                        let currentMaterial = foundMesh.material
+                        if (Array.isArray(currentMaterial)) {
+                            console.warn(`${Bush.MODEL_NAME} mesh ${foundMesh.name} uses multiple materials. InstancedMesh will use the first one.`)
+                            foundMaterial = currentMaterial.length > 0 ? currentMaterial[0] : null
+                        } else {
+                            foundMaterial = currentMaterial
+                        }
+                        if (foundMesh && foundMaterial) {
+                            console.log(
+                                `Bush (${Bush.MODEL_NAME}): Found mesh ${foundMesh.name} with material ${foundMaterial.uuid.substring(0, 4)}.`,
+                            )
+                        }
                     }
                 })
 
-                if (!mesh || !this.modelMaterial) {
-                    throw new Error(`No mesh or material found in bush model: ${Bush.MODEL_PATH}`)
+                if (!foundMesh || !foundMaterial) {
+                    throw new Error(`No valid mesh or material found in bush model: ${Bush.MODEL_PATH}`)
                 }
 
-                this.modelGeometry = mesh.geometry
-                if (!this.modelGeometry.boundingBox) {
-                    this.modelGeometry.computeBoundingBox()
-                }
+                // Use the geometry and material from the first found mesh
+                this.modelGeometry = foundMesh.geometry
+                this.modelMaterial = foundMaterial
+                console.log(`Bush (${Bush.MODEL_NAME}): Using geometry from mesh ${foundMesh.name}.`)
+
+                console.log(`Bush (${Bush.MODEL_NAME}): Computing bounding box...`)
+                if (!this.modelGeometry.boundingBox) this.modelGeometry.computeBoundingBox()
                 if (this.modelGeometry.boundingBox) {
                     this.boundingBox = this.modelGeometry.boundingBox.clone()
+                    console.log(`Bush (${Bush.MODEL_NAME}): Bounding box computed:`, this.boundingBox.min, this.boundingBox.max)
                 } else {
                     console.warn(`Could not compute bounding box for ${Bush.MODEL_NAME}`)
                 }
 
+                console.log(`Bush (${Bush.MODEL_NAME}): Creating InstancedMesh (Max instances: ${Bush.MAX_INSTANCES})...`)
                 this.instancedMesh = new THREE.InstancedMesh(this.modelGeometry, this.modelMaterial, Bush.MAX_INSTANCES)
                 this.instancedMesh.castShadow = Bush.CAST_SHADOW
                 this.instancedMesh.receiveShadow = Bush.RECEIVE_SHADOW
@@ -75,10 +102,12 @@ export class Bush extends Entity {
                     this.instancedMesh.setMatrixAt(i, zeroMatrix)
                 }
                 this.instancedMesh.instanceMatrix.needsUpdate = true
+                console.log(`Bush (${Bush.MODEL_NAME}): InstancedMesh created and initialized.`)
 
                 resolve()
             } catch (error) {
                 console.error(`Failed to initialize shared bush resources (${Bush.MODEL_NAME}):`, error)
+                Bush.disposeShared()
                 this.loadPromise = null
                 reject(error)
             }
@@ -86,46 +115,12 @@ export class Bush extends Entity {
         return this.loadPromise
     }
 
-    public static getMaxInstances(): number {
-        return Bush.MAX_INSTANCES
-    }
-
-    public static getInstancedMesh(): THREE.InstancedMesh | null {
-        return Bush.instancedMesh
+    public static getInstancedMeshes(): THREE.InstancedMesh[] {
+        return this.instancedMesh ? [this.instancedMesh] : []
     }
 
     public static getBoundingBox(): THREE.Box3 | null {
         return this.boundingBox
-    }
-
-    public override async initialize(): Promise<void> {
-        await super.initialize()
-        if (!Bush.instancedMesh) {
-            throw new Error("Bush shared resources not initialized")
-        }
-
-        try {
-            const resourceManager = this.terrainService.getResourceManager()
-            const model = await resourceManager.loadModel("bush", "models/bush/bush01.glb")
-
-            // 그림자 및 재질 설정
-            model.traverse(child => {
-                if (child instanceof THREE.Mesh) {
-                    child.castShadow = true
-                    child.receiveShadow = true
-                    if (child.material instanceof THREE.MeshStandardMaterial) {
-                        child.material.roughness = 0.8
-                        child.material.metalness = 0.1
-                        child.material.needsUpdate = true
-                    }
-                }
-            })
-
-            this.model.setModel(model)
-        } catch (error) {
-            console.error("Failed to initialize bush model:", error)
-            throw error
-        }
     }
 
     public setInstanceId(id: number): void {
@@ -150,37 +145,21 @@ export class Bush extends Entity {
 
     public override dispose(): void {
         super.dispose()
-        this.model.dispose()
-    }
-
-    public getModel(): THREE.Group {
-        return this.model.getModel()
-    }
-
-    public setPosition(x: number, y: number, z: number): void {
-        this.transform.setPosition(x, y, z)
-    }
-
-    public setScale(x: number, y: number, z: number): void {
-        this.transform.setScale(x, y, z)
-    }
-
-    public override update(deltaTime: number): void {
-        super.update(deltaTime)
     }
 
     public static disposeShared(): void {
+        console.log(`Bush (${Bush.MODEL_NAME}): Disposing shared resources...`)
         if (this.instancedMesh) {
             if (this.instancedMesh.parent) {
                 this.instancedMesh.parent.remove(this.instancedMesh)
             }
-            // Geometry/Material disposal assumed handled by ResourceManager
+            // Geometry is owned by the single mesh, assume ResourceManager handles disposal
             this.instancedMesh = null
         }
         this.modelGeometry = null
         this.modelMaterial = null
         this.boundingBox = null
         this.loadPromise = null
-        // console.log(`${Bush.MODEL_NAME} shared resources disposed.`) // Optional log
+        console.log(`${Bush.MODEL_NAME} shared resources disposed.`)
     }
 }

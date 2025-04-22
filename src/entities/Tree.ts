@@ -1,28 +1,7 @@
 import * as THREE from "three"
 import { ResourceManager } from "../core/ResourceManager"
-
-// Type definition for classes that manage instanced environment entities
-export interface IInstancedEnvironmentEntityClass {
-    MODEL_PATH: string
-    MODEL_NAME: string
-    MAX_INSTANCES: number
-    CAST_SHADOW: boolean
-    RECEIVE_SHADOW: boolean
-    instancedMesh: THREE.InstancedMesh | null
-    boundingBox: THREE.Box3 | null
-
-    new (instanceId: number): {
-        setInstanceId(id: number): void
-        updateInstance(matrix: THREE.Matrix4): void
-        dispose(): void // Individual instance dispose (usually no-op)
-    }
-
-    initializeShared(resourceManager: ResourceManager): Promise<void>
-    getInstancedMesh(): THREE.InstancedMesh | null
-    getMaxInstances(): number
-    getBoundingBox(): THREE.Box3 | null
-    disposeShared(): void
-}
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js"
+import { BufferAttribute } from "three"
 
 export class Tree {
     // --- Static Configuration ---
@@ -32,13 +11,16 @@ export class Tree {
     public static readonly MAX_INSTANCES = 500 // External config preferred
     public static readonly CAST_SHADOW = true
     public static readonly RECEIVE_SHADOW = true
+    // --- Model specific adjustments ---
+    public static readonly APPLY_ROTATION_X = -Math.PI / 2 // Adjust if model needs rotation
     // ---------------------------
 
-    public static instancedMesh: THREE.InstancedMesh | null = null
-    private static modelGeometry: THREE.BufferGeometry | null = null
-    private static modelMaterial: THREE.Material | THREE.Material[] | null = null
+    // Store multiple meshes, keyed by material UUID or a default key
+    public static instancedMeshes: Map<string, THREE.InstancedMesh> = new Map()
+    private static modelGeometries: Map<string, THREE.BufferGeometry> = new Map()
+    private static modelMaterials: Map<string, THREE.Material> = new Map()
     private static loadPromise: Promise<void> | null = null
-    public static boundingBox: THREE.Box3 | null = null // Original model bounding box
+    public static boundingBox: THREE.Box3 | null = null // Combined bounding box
 
     private instanceId: number = -1
 
@@ -46,61 +28,141 @@ export class Tree {
         this.setInstanceId(instanceId)
     }
 
+    // Helper to check if geometry attributes are compatible for merging
+    private static haveSameAttributes(geoA: THREE.BufferGeometry, geoB: THREE.BufferGeometry): boolean {
+        const attrsA = Object.keys(geoA.attributes).sort()
+        const attrsB = Object.keys(geoB.attributes).sort()
+        if (attrsA.length !== attrsB.length) return false
+        for (let i = 0; i < attrsA.length; i++) {
+            if (attrsA[i] !== attrsB[i]) return false
+            // Optional: Deeper check for attribute types/components if needed
+            const attrA = geoA.attributes[attrsA[i]] as BufferAttribute
+            const attrB = geoB.attributes[attrsB[i]] as BufferAttribute
+            if (attrA.itemSize !== attrB.itemSize || attrA.normalized !== attrB.normalized) {
+                console.warn(
+                    `Attribute mismatch detail: ${attrsA[i]}, itemSize (${attrA.itemSize} vs ${attrB.itemSize}), normalized (${attrA.normalized} vs ${attrB.normalized})`,
+                )
+                return false
+            }
+        }
+        return true
+    }
+
     public static async initializeShared(resourceManager: ResourceManager): Promise<void> {
-        if (Tree.instancedMesh) return
+        if (Tree.instancedMeshes.size > 0) return
         if (this.loadPromise) return this.loadPromise
 
         this.loadPromise = new Promise<void>(async (resolve, reject) => {
             try {
                 const model = await resourceManager.loadModel(Tree.MODEL_NAME, Tree.MODEL_PATH)
+                if (Tree.APPLY_ROTATION_X !== 0) {
+                    model.rotation.x = Tree.APPLY_ROTATION_X
+                }
+                model.updateMatrixWorld(true)
 
-                let mesh: THREE.Mesh | null = null
+                // Group geometries by material UUID
+                const geometriesByMaterial = new Map<string, THREE.BufferGeometry[]>()
+                const materialsByUUID = new Map<string, THREE.Material>()
+
                 model.traverse(child => {
-                    // Find the first mesh to use for instancing
-                    if (child instanceof THREE.Mesh && !mesh) {
-                        mesh = child
-                        // Use the material(s) from the mesh
-                        this.modelMaterial = child.material
+                    if (child instanceof THREE.Mesh && child.geometry && child.material) {
+                        const mesh = child as THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]>
+                        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+
+                        materials.forEach(material => {
+                            if (!material) return
+                            const matUUID = material.uuid
+                            if (!materialsByUUID.has(matUUID)) {
+                                materialsByUUID.set(matUUID, material)
+                                geometriesByMaterial.set(matUUID, [])
+                            }
+
+                            // Clone geometry and apply mesh's world matrix
+                            const clonedGeo = mesh.geometry.clone()
+                            clonedGeo.applyMatrix4(mesh.matrixWorld)
+
+                            // Check attribute compatibility before adding
+                            const groupGeos = geometriesByMaterial.get(matUUID)!
+                            if (groupGeos.length > 0 && !Tree.haveSameAttributes(groupGeos[0], clonedGeo)) {
+                                console.error(
+                                    `Tree (${Tree.MODEL_NAME}): Mesh ${mesh.name} has incompatible attributes for material ${matUUID}. Skipping this mesh for this material group.`,
+                                )
+                                clonedGeo.dispose() // Dispose cloned geometry
+                                return // Skip this geometry for this material group
+                            }
+
+                            groupGeos.push(clonedGeo)
+                        })
                     }
                 })
 
-                if (!mesh || !this.modelMaterial) {
-                    throw new Error(`No mesh or material found in tree model: ${Tree.MODEL_PATH}`)
+                if (geometriesByMaterial.size === 0) {
+                    throw new Error(`No valid geometries/materials found in tree model: ${Tree.MODEL_PATH}`)
                 }
 
-                this.modelGeometry = mesh.geometry
+                const combinedBBox = new THREE.Box3() // To calculate overall bounding box
+                Tree.instancedMeshes.clear()
+                Tree.modelGeometries.clear()
+                Tree.modelMaterials.clear()
 
-                // Compute bounding box from the geometry
-                if (!this.modelGeometry.boundingBox) {
-                    this.modelGeometry.computeBoundingBox()
+                // Create an InstancedMesh for each material group
+                for (const [matUUID, geometries] of geometriesByMaterial.entries()) {
+                    if (geometries.length === 0) continue // Skip if no compatible geometries found for this material
+
+                    try {
+                        const material = materialsByUUID.get(matUUID)!
+                        const mergedGeometry = mergeGeometries(geometries, false) // useGroups = false, materials handled separately
+                        if (!mergedGeometry) {
+                            throw new Error(`mergeGeometries returned null for material ${matUUID}`)
+                        }
+
+                        if (!mergedGeometry.boundingBox) mergedGeometry.computeBoundingBox()
+                        if (mergedGeometry.boundingBox) {
+                            combinedBBox.union(mergedGeometry.boundingBox) // Expand combined box
+                        } else {
+                            console.warn(`Could not compute bounding box for merged geometry of material ${matUUID}`)
+                        }
+
+                        const instancedMesh = new THREE.InstancedMesh(mergedGeometry, material, Tree.MAX_INSTANCES)
+                        instancedMesh.castShadow = Tree.CAST_SHADOW
+                        instancedMesh.receiveShadow = Tree.RECEIVE_SHADOW
+                        instancedMesh.name = `${Tree.MODEL_NAME}InstancedMesh_${matUUID.substring(0, 4)}` // Unique name
+                        instancedMesh.frustumCulled = true
+
+                        const zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0)
+                        for (let i = 0; i < Tree.MAX_INSTANCES; i++) {
+                            instancedMesh.setMatrixAt(i, zeroMatrix)
+                        }
+                        instancedMesh.instanceMatrix.needsUpdate = true
+
+                        // Store the results
+                        Tree.instancedMeshes.set(matUUID, instancedMesh)
+                        Tree.modelGeometries.set(matUUID, mergedGeometry)
+                        Tree.modelMaterials.set(matUUID, material)
+
+                        console.log(`Created InstancedMesh for Tree material group: ${matUUID.substring(0, 4)} with ${geometries.length} sub-meshes.`) // Log success
+                    } catch (error) {
+                        console.error(`Failed to create InstancedMesh for Tree material group ${matUUID}:`, error)
+                        // Dispose geometries if merge failed mid-way
+                        geometries.forEach(geo => geo.dispose())
+                        // Continue to next material group if possible
+                    }
                 }
-                if (this.modelGeometry.boundingBox) {
-                    this.boundingBox = this.modelGeometry.boundingBox.clone()
-                    // Optional: Apply mesh's world matrix if needed (e.g., if mesh isn't at origin/identity scale in GLB)
-                    // this.boundingBox.applyMatrix4(mesh.matrixWorld);
-                } else {
-                    console.warn(`Could not compute bounding box for ${Tree.MODEL_NAME}`)
+
+                // Dispose original individual geometries after merging
+                geometriesByMaterial.forEach(geos => geos.forEach(geo => geo.dispose()))
+
+                if (Tree.instancedMeshes.size === 0) {
+                    throw new Error(`Failed to create any InstancedMesh for ${Tree.MODEL_NAME}. Check logs for errors.`)
                 }
 
-                // Ensure material supports instancing if needed (e.g., custom shaders)
-
-                this.instancedMesh = new THREE.InstancedMesh(this.modelGeometry, this.modelMaterial, Tree.MAX_INSTANCES)
-                this.instancedMesh.castShadow = Tree.CAST_SHADOW
-                this.instancedMesh.receiveShadow = Tree.RECEIVE_SHADOW
-                this.instancedMesh.name = `${Tree.MODEL_NAME}InstancedMesh`
-                this.instancedMesh.frustumCulled = true // Enable frustum culling for performance
-
-                // Initialize all instances with zero scale matrix (invisible)
-                const zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0)
-                for (let i = 0; i < Tree.MAX_INSTANCES; i++) {
-                    this.instancedMesh.setMatrixAt(i, zeroMatrix)
-                }
-                this.instancedMesh.instanceMatrix.needsUpdate = true // Important after setting matrices
-
+                Tree.boundingBox = combinedBBox.isEmpty() ? null : combinedBBox
+                console.log(`Tree (${Tree.MODEL_NAME}) shared resources initialized with ${Tree.instancedMeshes.size} InstancedMesh(es).`) // Log total meshes created
                 resolve()
             } catch (error) {
                 console.error(`Failed to initialize shared tree resources (${Tree.MODEL_NAME}):`, error)
-                this.loadPromise = null // Reset promise on error
+                Tree.disposeShared() // Clean up partially initialized resources
+                this.loadPromise = null
                 reject(error)
             }
         })
@@ -111,31 +173,30 @@ export class Tree {
     public setInstanceId(id: number): void {
         if (id < 0 || id >= Tree.MAX_INSTANCES) {
             console.error(`Invalid instanceId assigned to Tree: ${id}. Max is ${Tree.MAX_INSTANCES - 1}`)
-            this.instanceId = -1 // Mark as invalid
+            this.instanceId = -1
             return
         }
         this.instanceId = id
     }
 
-    // Updates the matrix for this specific instance
+    // Updates the matrix for this specific instance in ALL relevant InstancedMeshes
     public updateInstance(matrix: THREE.Matrix4): void {
-        if (this.instanceId === -1 || !Tree.instancedMesh) {
-            // Log error only once or use a different mechanism to avoid spamming
-            // console.error(`Attempted to update invalid Tree instance (${this.instanceId})`);
+        if (this.instanceId === -1 || Tree.instancedMeshes.size === 0) {
             return
         }
 
         try {
-            Tree.instancedMesh.setMatrixAt(this.instanceId, matrix)
-            // Flag the matrix for update. Consider optimizing this if updates are sparse.
-            Tree.instancedMesh.instanceMatrix.needsUpdate = true
+            Tree.instancedMeshes.forEach(mesh => {
+                mesh.setMatrixAt(this.instanceId, matrix)
+                mesh.instanceMatrix.needsUpdate = true // Flag for update
+            })
         } catch (error) {
-            console.error(`Error updating Tree instance ${this.instanceId} matrix:`, error)
+            console.error(`Error updating Tree instance ${this.instanceId} matrices:`, error)
         }
     }
 
-    public static getInstancedMesh(): THREE.InstancedMesh | null {
-        return Tree.instancedMesh
+    public static getInstancedMeshes(): THREE.InstancedMesh[] {
+        return Array.from(this.instancedMeshes.values())
     }
 
     public static getMaxInstances(): number {
@@ -158,20 +219,22 @@ export class Tree {
 
     // Dispose shared resources (geometry, material, instancedMesh)
     public static disposeShared(): void {
-        if (this.instancedMesh) {
-            // Remove from scene if attached
-            if (this.instancedMesh.parent) {
-                this.instancedMesh.parent.remove(this.instancedMesh)
+        Tree.instancedMeshes.forEach(mesh => {
+            if (mesh.parent) {
+                mesh.parent.remove(mesh)
             }
-            // Dispose geometry and material if they are not shared elsewhere or managed by ResourceManager
-            // Assuming ResourceManager handles disposal of geometries/materials fetched via loadModel
-            this.instancedMesh = null
-        }
-        // Clear references
-        this.modelGeometry = null
-        this.modelMaterial = null
-        this.boundingBox = null
-        this.loadPromise = null
-        // console.log(`${Tree.MODEL_NAME} shared resources disposed.`) // Optional log
+            // Geometry and Material are now managed in maps below
+        })
+        Tree.instancedMeshes.clear()
+
+        Tree.modelGeometries.forEach(geometry => geometry.dispose())
+        Tree.modelGeometries.clear()
+
+        // Assume materials loaded by ResourceManager are disposed there
+        Tree.modelMaterials.clear()
+
+        Tree.boundingBox = null
+        Tree.loadPromise = null
+        console.log(`${Tree.MODEL_NAME} shared resources disposed.`)
     }
 }

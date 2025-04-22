@@ -242,6 +242,44 @@ export class Car extends Entity {
         return physics.getVelocity().length()
     }
 
+    /**
+     * Returns the car's current world bounding box for collision detection.
+     * Calculates based on the model component's bounding box and the car's world transform.
+     * Returns null if the model or bounding box is not available.
+     */
+    public getWorldBoundingBox(): THREE.Box3 | null {
+        const modelComponent = this.getComponent<ModelComponent>("model")
+        const transformComponent = this.getComponent<TransformComponent>("transform")
+        const model = modelComponent?.getModel()
+
+        if (!model || !transformComponent) {
+            return null
+        }
+
+        // Ensure the model's bounding box is computed
+        // This might be pre-computed or computed on demand
+        let modelBox = model.userData.boundingBox as THREE.Box3 | undefined
+        if (!modelBox) {
+            modelBox = new THREE.Box3().setFromObject(model, true) // Compute precisely if needed
+            model.userData.boundingBox = modelBox // Cache it
+        }
+
+        if (modelBox.isEmpty()) {
+            // Return null or a default small box if the model box is empty/invalid
+            return null
+        }
+
+        // Clone the base model box and apply the car's current world transform
+        const worldBox = modelBox.clone()
+        // Use the model's world matrix directly, assuming it's up-to-date
+        // Ensure the model's world matrix is updated before calling this function
+        // Usually done by the renderer or an explicit scene graph update
+        model.updateWorldMatrix(true, false) // Force update for this calculation if needed
+        worldBox.applyMatrix4(model.matrixWorld) // Apply world matrix
+
+        return worldBox
+    }
+
     private updateWheelRotation(deltaTime: number): void {
         const physics = this.getComponent<PhysicsComponent>("physics")
         if (!physics) return

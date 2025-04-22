@@ -2,8 +2,8 @@ import * as THREE from "three"
 import { Entity } from "../core/Entity"
 import { ModelComponent } from "../components/ModelComponent"
 import { TransformComponent } from "../components/TransformComponent"
-import { ITerrainService } from "../core/ITerrainService"
 import { ResourceManager } from "../core/ResourceManager"
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js"
 
 export class Rock extends Entity {
     // --- Static Configuration ---
@@ -14,58 +14,121 @@ export class Rock extends Entity {
     public static readonly RECEIVE_SHADOW = true
     // ---------------------------
 
-    private static maxInstances: number = 0
     public static instancedMesh: THREE.InstancedMesh | null = null
     private static modelGeometry: THREE.BufferGeometry | null = null
     private static modelMaterial: THREE.Material | THREE.Material[] | null = null
-    private static isInitialized = false
     public static boundingBox: THREE.Box3 | null = null
     private static loadPromise: Promise<void> | null = null
 
     private transform: TransformComponent
     private model: ModelComponent
     private instanceId: number = -1
-    private terrainService: ITerrainService
 
-    constructor(terrainService: ITerrainService) {
+    constructor(instanceId: number) {
         super()
-        this.terrainService = terrainService
         this.transform = new TransformComponent()
         this.model = new ModelComponent()
         this.addComponent(this.transform)
         this.addComponent(this.model)
+        this.setInstanceId(instanceId)
     }
 
     public static async initializeShared(resourceManager: ResourceManager): Promise<void> {
-        if (Rock.instancedMesh) return
-        if (this.loadPromise) return this.loadPromise
+        console.log(`Rock (${Rock.MODEL_NAME}): Initializing shared resources...`)
+        if (Rock.instancedMesh) {
+            console.log(`Rock (${Rock.MODEL_NAME}): Already initialized.`)
+            return
+        }
+        if (this.loadPromise) {
+            console.log(`Rock (${Rock.MODEL_NAME}): Initialization already in progress.`)
+            return this.loadPromise
+        }
 
         this.loadPromise = new Promise<void>(async (resolve, reject) => {
             try {
+                console.log(`Rock (${Rock.MODEL_NAME}): Loading model...`)
                 const model = await resourceManager.loadModel(Rock.MODEL_NAME, Rock.MODEL_PATH)
+                model.updateMatrixWorld(true)
+                console.log(`Rock (${Rock.MODEL_NAME}): Model loaded.`)
 
-                let mesh: THREE.Mesh | null = null
+                const geometries: THREE.BufferGeometry[] = []
+                const materials: THREE.Material[] = []
+                const materialMap = new Map<string, number>()
+                let combinedGeometry: THREE.BufferGeometry | null = null
+
+                console.log(`Rock (${Rock.MODEL_NAME}): Traversing model for geometries and materials...`)
                 model.traverse(child => {
-                    if (child instanceof THREE.Mesh && !mesh) {
-                        mesh = child
-                        this.modelMaterial = child.material
+                    if (child instanceof THREE.Mesh && child.geometry) {
+                        const mesh = child as THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]>
+                        const clonedGeo = mesh.geometry.clone()
+                        clonedGeo.applyMatrix4(mesh.matrixWorld)
+                        geometries.push(clonedGeo)
+
+                        let currentMaterial = mesh.material
+                        if (Array.isArray(currentMaterial)) {
+                            console.warn(`Rock model (${Rock.MODEL_NAME}) mesh ${mesh.name} has multiple materials. Using first.`)
+                            currentMaterial = currentMaterial[0]
+                        }
+
+                        if (currentMaterial) {
+                            if (!materialMap.has(currentMaterial.uuid)) {
+                                materialMap.set(currentMaterial.uuid, materials.length)
+                                materials.push(currentMaterial)
+                            }
+                        } else {
+                            console.warn(`Rock model (${Rock.MODEL_NAME}) mesh ${mesh.name} is missing material.`)
+                        }
                     }
                 })
+                console.log(`Rock (${Rock.MODEL_NAME}): Found ${geometries.length} geometries and ${materials.length} unique materials.`)
 
-                if (!mesh || !this.modelMaterial) {
-                    throw new Error(`No mesh or material found in rock model: ${Rock.MODEL_PATH}`)
+                if (geometries.length === 0) {
+                    throw new Error(`No geometries found in rock model: ${Rock.MODEL_PATH}`)
                 }
 
-                this.modelGeometry = mesh.geometry
-                if (!this.modelGeometry.boundingBox) {
-                    this.modelGeometry.computeBoundingBox()
+                // --- Try merging geometries ---
+                console.log(`Rock (${Rock.MODEL_NAME}): Merging geometries...`)
+                try {
+                    combinedGeometry = mergeGeometries(geometries, materials.length > 1) // useGroups true only if multi-material
+                    if (!combinedGeometry) throw new Error("Rock merge resulted in null geometry")
+                    console.log(`Rock (${Rock.MODEL_NAME}): Geometries merged successfully.`)
+                } catch (mergeError) {
+                    console.warn(`Could not merge geometries for ${Rock.MODEL_NAME}, using largest geometry. Error: ${mergeError}`)
+                    let largestGeo: THREE.BufferGeometry | null = null
+                    let maxVertices = -1
+                    geometries.forEach(geo => {
+                        const vertices = geo.attributes.position.count
+                        if (vertices > maxVertices) {
+                            maxVertices = vertices
+                            largestGeo = geo
+                        }
+                    })
+                    combinedGeometry = largestGeo
+                    if (materials.length > 1) {
+                        console.warn(`Fell back to largest rock geometry, using only the first material.`)
+                        materials.splice(1)
+                    }
                 }
+                // Dispose individual geometries after merging/selection
+                geometries.forEach(geo => geo.dispose())
+
+                if (!combinedGeometry) {
+                    throw new Error(`Failed to obtain valid geometry for ${Rock.MODEL_NAME}`)
+                }
+                this.modelGeometry = combinedGeometry
+                this.modelMaterial = materials.length === 1 ? materials[0] : materials
+                console.log(`Rock (${Rock.MODEL_NAME}): Final geometry and material set.`)
+
+                console.log(`Rock (${Rock.MODEL_NAME}): Computing bounding box...`)
+                if (!this.modelGeometry.boundingBox) this.modelGeometry.computeBoundingBox()
                 if (this.modelGeometry.boundingBox) {
                     this.boundingBox = this.modelGeometry.boundingBox.clone()
+                    console.log(`Rock (${Rock.MODEL_NAME}): Bounding box computed:`, this.boundingBox.min, this.boundingBox.max)
                 } else {
                     console.warn(`Could not compute bounding box for ${Rock.MODEL_NAME}`)
                 }
 
+                console.log(`Rock (${Rock.MODEL_NAME}): Creating InstancedMesh (Max instances: ${Rock.MAX_INSTANCES})...`)
                 this.instancedMesh = new THREE.InstancedMesh(this.modelGeometry, this.modelMaterial, Rock.MAX_INSTANCES)
                 this.instancedMesh.castShadow = Rock.CAST_SHADOW
                 this.instancedMesh.receiveShadow = Rock.RECEIVE_SHADOW
@@ -77,10 +140,12 @@ export class Rock extends Entity {
                     this.instancedMesh.setMatrixAt(i, zeroMatrix)
                 }
                 this.instancedMesh.instanceMatrix.needsUpdate = true
+                console.log(`Rock (${Rock.MODEL_NAME}): InstancedMesh created and initialized.`)
 
                 resolve()
             } catch (error) {
                 console.error(`Failed to initialize shared rock resources (${Rock.MODEL_NAME}):`, error)
+                Rock.disposeShared() // Clean up
                 this.loadPromise = null
                 reject(error)
             }
@@ -88,12 +153,8 @@ export class Rock extends Entity {
         return this.loadPromise
     }
 
-    public static getMaxInstances(): number {
-        return Rock.maxInstances
-    }
-
-    public static getInstancedMesh(): THREE.InstancedMesh | null {
-        return this.instancedMesh
+    public static getInstancedMeshes(): THREE.InstancedMesh[] {
+        return this.instancedMesh ? [this.instancedMesh] : []
     }
 
     public static getBoundingBox(): THREE.Box3 | null {
@@ -101,48 +162,19 @@ export class Rock extends Entity {
     }
 
     public static disposeShared(): void {
+        console.log(`Rock (${Rock.MODEL_NAME}): Disposing shared resources...`)
         if (this.instancedMesh) {
             if (this.instancedMesh.parent) {
                 this.instancedMesh.parent.remove(this.instancedMesh)
             }
-            // Geometry/Material disposal assumed handled by ResourceManager
             this.instancedMesh = null
         }
+        this.modelGeometry?.dispose()
         this.modelGeometry = null
         this.modelMaterial = null
         this.boundingBox = null
         this.loadPromise = null
-        // console.log(`${Rock.MODEL_NAME} shared resources disposed.`) // Optional log
-    }
-
-    public override async initialize(): Promise<void> {
-        await super.initialize()
-        if (!Rock.instancedMesh) {
-            throw new Error("Rock shared resources not initialized")
-        }
-
-        try {
-            const resourceManager = this.terrainService.getResourceManager()
-            const model = await resourceManager.loadModel("rock", "models/rock/rock01.glb")
-
-            // 그림자 및 재질 설정
-            model.traverse(child => {
-                if (child instanceof THREE.Mesh) {
-                    child.castShadow = true
-                    child.receiveShadow = true
-                    if (child.material instanceof THREE.MeshStandardMaterial) {
-                        child.material.roughness = 0.8
-                        child.material.metalness = 0.1
-                        child.material.needsUpdate = true
-                    }
-                }
-            })
-
-            this.model.setModel(model)
-        } catch (error) {
-            console.error("Failed to initialize rock model:", error)
-            throw error
-        }
+        console.log(`Rock (${Rock.MODEL_NAME}): Shared resources disposed.`)
     }
 
     public setInstanceId(id: number): void {
@@ -165,15 +197,13 @@ export class Rock extends Entity {
         }
     }
 
-    public override update(deltaTime: number): void {
-        super.update(deltaTime)
-    }
-
     public override dispose(): void {
         super.dispose()
-        this.model.dispose()
+        // Instance doesn't own shared resources, nothing specific to dispose here
     }
 
+    // Methods below might not be needed if Rock is only used via EnvironmentManager
+    /*
     public getModel(): THREE.Group {
         return this.model.getModel()
     }
@@ -185,4 +215,5 @@ export class Rock extends Entity {
     public setScale(x: number, y: number, z: number): void {
         this.transform.setScale(x, y, z)
     }
+    */
 }

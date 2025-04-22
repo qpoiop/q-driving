@@ -1,6 +1,6 @@
 import * as THREE from "three"
 import { ITerrainService } from "./ITerrainService"
-import { Tree, IInstancedEnvironmentEntityClass } from "../entities/Tree"
+import { Tree } from "../entities/Tree"
 import { Rock } from "../entities/Rock"
 import { Bush } from "../entities/Bush"
 import { Engine } from "./Engine"
@@ -14,36 +14,46 @@ const LOD_DISTANCES_SQUARED = {
     MEDIUM: LOD_DISTANCES.MEDIUM * LOD_DISTANCES.MEDIUM,
     LOW: LOD_DISTANCES.LOW * LOD_DISTANCES.LOW,
 }
-const LOD_SCALE_FACTORS = { HIGH: 0.9, MEDIUM: 0.8, LOW: 0.7 } // Added LOW scale for consistency
+const LOD_SCALE_FACTORS = { HIGH: 1.0, MEDIUM: 0.8, LOW: 0.7 } // Full scale for HIGH
 
 // Update frequency (process only a fraction of instances per frame)
 const UPDATE_FREQUENCY: number = 3 // E.g., update 1/3rd of instances each frame
 
 // Generation settings
-const GENERATION_CHUNK_SIZE: number = 100 // Process placements in chunks to avoid blocking
+const GENERATION_CHUNK_SIZE: number = 150 // Process placements in chunks to avoid blocking
 const GENERATION_ATTEMPTS_MULTIPLIER: number = 1.5 // Try more placements than max instances
 const CLEARING_RADIUS: number = 50 // Area around origin to keep clear (e.g., for roads/start area)
 const OUTER_GENERATION_RADIUS: number = 700 // Maximum distance from origin for generation
-const MIN_DISTANCE_BETWEEN_OBJECTS = 1.0 // Minimum distance to avoid clipping (adjust as needed)
+const MIN_DISTANCE_BETWEEN_OBJECTS = 1.2 // Minimum distance to avoid clipping (adjust as needed)
 const MIN_DISTANCE_SQ = MIN_DISTANCE_BETWEEN_OBJECTS * MIN_DISTANCE_BETWEEN_OBJECTS
 
-// Entity generation probabilities and scale settings
-// It's better to move this to a dedicated config file/system
+// Define a structural type for environment entities
+interface EnvironmentEntityType {
+    new (instanceId: number): any // Reverted: Constructor takes only instanceId
+    initializeShared(resourceManager: ResourceManager): Promise<void>
+    getInstancedMeshes(): THREE.InstancedMesh[] // Changed: Returns array of meshes
+    getBoundingBox(): THREE.Box3 | null
+    disposeShared(): void
+    MAX_INSTANCES: number
+    MODEL_NAME: string
+}
+
+// Update ENTITY_GENERATION_CONFIG to use the new structural type
 const ENTITY_GENERATION_CONFIG = {
     TREE: {
-        class: Tree,
+        class: Tree as unknown as EnvironmentEntityType,
         probability: 0.3,
-        scaleMin: 1.5,
-        scaleRange: 1.0,
+        scaleMin: 0.8,
+        scaleRange: 0.4,
     },
     ROCK: {
-        class: Rock,
+        class: Rock as unknown as EnvironmentEntityType,
         probability: 0.3,
         scaleMin: 0.8,
         scaleRange: 0.4,
     },
     BUSH: {
-        class: Bush,
+        class: Bush as unknown as EnvironmentEntityType,
         probability: 0.4,
         scaleMin: 0.5,
         scaleRange: 0.3,
@@ -53,13 +63,14 @@ const ENTITY_GENERATION_CONFIG = {
 
 // Internal representation of a managed environment object instance
 interface ManagedEnvironmentObject {
-    entity: InstanceType<IInstancedEnvironmentEntityClass> // Instance of Tree, Rock, or Bush
-    entityClass: IInstancedEnvironmentEntityClass // Reference to the class itself (Tree, Rock, Bush)
+    entity: InstanceType<EnvironmentEntityType> // Instance of Tree, Rock, or Bush
+    entityClass: EnvironmentEntityType // Reference to the class itself (Tree, Rock, Bush)
     position: THREE.Vector3 // World position
     scale: THREE.Vector3 // Base scale
     rotation: THREE.Euler // Base rotation (aligned to terrain + random Y)
     distanceSq: number // Squared distance to camera
     isVisible: boolean // Calculated visibility based on LOD
+    worldMatrix: THREE.Matrix4 // Added for collision detection
 }
 
 export class EnvironmentManager {
@@ -70,7 +81,7 @@ export class EnvironmentManager {
     private camera: THREE.Camera | null = null // Cache camera reference
 
     // Store managed objects per type
-    private managedObjects: Map<IInstancedEnvironmentEntityClass, ManagedEnvironmentObject[]> = new Map()
+    private managedObjects: Map<EnvironmentEntityType, ManagedEnvironmentObject[]> = new Map()
 
     // Helper objects reused in loops to reduce allocations
     private matrix = new THREE.Matrix4()
@@ -78,6 +89,7 @@ export class EnvironmentManager {
     private rotationQuaternion = new THREE.Quaternion()
     private upVector = new THREE.Vector3(0, 1, 0)
     private zeroScaleMatrix = new THREE.Matrix4().makeScale(0, 0, 0)
+    private tempPosition = new THREE.Vector3()
 
     private frameCounter: number = 0
     private isInitialized: boolean = false
@@ -89,17 +101,21 @@ export class EnvironmentManager {
 
         // Initialize map for each entity type
         Object.values(ENTITY_GENERATION_CONFIG).forEach(config => {
-            this.managedObjects.set(config.class as IInstancedEnvironmentEntityClass, [])
+            this.managedObjects.set(config.class, [])
         })
     }
 
     public static getInstance(terrainService: ITerrainService, resourceManager: ResourceManager, scene: THREE.Scene): EnvironmentManager {
         if (!EnvironmentManager.instance) {
             if (!terrainService || !resourceManager || !scene) {
-                console.error("EnvironmentManager: Invalid dependencies provided.")
+                console.error("EnvironmentManager: Invalid dependencies provided for instantiation.")
                 throw new Error("Invalid dependencies provided to EnvironmentManager.")
             }
             EnvironmentManager.instance = new EnvironmentManager(terrainService, resourceManager, scene)
+        } else {
+            EnvironmentManager.instance.terrainService = terrainService
+            EnvironmentManager.instance.resourceManager = resourceManager
+            EnvironmentManager.instance.scene = scene
         }
         return EnvironmentManager.instance
     }
@@ -120,20 +136,21 @@ export class EnvironmentManager {
 
         try {
             // Initialize shared resources for all entity types concurrently
-            const initPromises = Object.values(ENTITY_GENERATION_CONFIG).map(config =>
-                (config.class as IInstancedEnvironmentEntityClass).initializeShared(this.resourceManager),
-            )
+            const initPromises = Object.values(ENTITY_GENERATION_CONFIG).map(config => config.class.initializeShared(this.resourceManager))
             await Promise.all(initPromises)
 
             // Add instanced meshes to the scene
             Object.values(ENTITY_GENERATION_CONFIG).forEach(config => {
-                const EntityClass = config.class as IInstancedEnvironmentEntityClass
-                const mesh = EntityClass.getInstancedMesh()
-                if (mesh) {
-                    this.scene.add(mesh)
-                    // console.log(`Added ${mesh.name} to scene.`) // Optional log
+                const EntityClass = config.class as EnvironmentEntityType
+                const meshes = EntityClass.getInstancedMeshes() // Get array of meshes
+                if (meshes && meshes.length > 0) {
+                    meshes.forEach(mesh => {
+                        if (mesh && !mesh.parent) {
+                            this.scene.add(mesh)
+                        }
+                    })
                 } else {
-                    console.warn(`InstancedMesh for ${EntityClass.MODEL_NAME} not found after initialization.`)
+                    console.warn(`InstancedMeshes for ${EntityClass.MODEL_NAME} not found after initialization.`)
                 }
             })
 
@@ -154,9 +171,9 @@ export class EnvironmentManager {
 
     private async generateEnvironmentObjects(): Promise<void> {
         const road = this.terrainService.getRoad ? this.terrainService.getRoad() : null
-        let roadCheckWidth = 5 // Default width to check around road center
+        let roadCheckWidth = 5
         if (road && typeof road.isPointOnRoad === "function" && typeof (road as any).config?.width === "number") {
-            roadCheckWidth = (road as any).config.width / 2 + 1.5 // Add a small buffer
+            roadCheckWidth = (road as any).config.width / 2 + 1.5
         } else if (road) {
             console.warn("Road object found, but failed validation for width. Using default road check width.")
         }
@@ -165,13 +182,11 @@ export class EnvironmentManager {
         const outerGenerationRadiusSq = OUTER_GENERATION_RADIUS * OUTER_GENERATION_RADIUS
 
         let totalGeneratedCount = 0
-        const tempPosition = new THREE.Vector3()
-        const allPositions: THREE.Vector3[] = [] // Keep track of placed positions to avoid overlaps
+        const allPositions: THREE.Vector3[] = []
 
-        // Calculate total max instances and attempts
         let totalMaxInstances = 0
         Object.values(ENTITY_GENERATION_CONFIG).forEach(config => {
-            totalMaxInstances += (config.class as IInstancedEnvironmentEntityClass).MAX_INSTANCES
+            totalMaxInstances += (config.class as EnvironmentEntityType).MAX_INSTANCES
         })
         const totalAttempts = totalMaxInstances * GENERATION_ATTEMPTS_MULTIPLIER
 
@@ -180,66 +195,62 @@ export class EnvironmentManager {
                 `${CLEARING_RADIUS} and ${OUTER_GENERATION_RADIUS}. Max instances: ${totalMaxInstances}`,
         )
 
-        // Pre-calculate cumulative probabilities for weighted random selection
         let cumulativeProb = 0
         const entityTypes = Object.values(ENTITY_GENERATION_CONFIG)
         const weightedTypes = entityTypes.map(config => {
             cumulativeProb += config.probability
             return { ...config, cumulativeProb }
         })
-        const totalProbability = cumulativeProb // Can be used to normalize if needed
+        const totalProbability = cumulativeProb > 0 ? cumulativeProb : 1
+
+        const cameraPosition = this.camera ? this.camera.position : new THREE.Vector3(0, 0, 0)
 
         for (let i = 0; i < totalAttempts; i++) {
-            // Yield control occasionally to prevent blocking the main thread
             if (i > 0 && i % GENERATION_CHUNK_SIZE === 0) {
                 await new Promise(resolve => setTimeout(resolve, 0))
             }
 
-            // Generate a random position within the allowed annulus
+            // Generate position RELATIVE to the camera within the annulus
             const angle = Math.random() * Math.PI * 2
-            const radiusSq = clearingRadiusSq + Math.random() * (outerGenerationRadiusSq - clearingRadiusSq)
-            const radius = Math.sqrt(radiusSq)
-            const x = radius * Math.cos(angle)
-            const z = radius * Math.sin(angle)
-            tempPosition.set(x, 0, z)
+            // Ensure radius is within the desired range [CLEARING_RADIUS, OUTER_GENERATION_RADIUS]
+            const radius = Math.sqrt(clearingRadiusSq + Math.random() * (outerGenerationRadiusSq - clearingRadiusSq))
+            const offsetX = radius * Math.cos(angle)
+            const offsetZ = radius * Math.sin(angle)
 
-            // Basic check for minimum distance from existing objects
+            // Calculate absolute world position
+            const x = cameraPosition.x + offsetX
+            const z = cameraPosition.z + offsetZ
+            this.tempPosition.set(x, 0, z)
+
+            // Check minimum distance from other generated objects
             let tooClose = false
             for (const pos of allPositions) {
-                if (tempPosition.distanceToSquared(pos) < MIN_DISTANCE_SQ) {
+                if (this.tempPosition.distanceToSquared(pos) < MIN_DISTANCE_SQ) {
                     tooClose = true
                     break
                 }
             }
             if (tooClose) continue
 
-            // Check if position is on the road
+            // Check if position is on the road (using absolute coordinates)
             if (road && typeof road.isPointOnRoad === "function" && road.isPointOnRoad(x, z, roadCheckWidth)) {
                 continue
             }
 
             try {
-                // Get terrain height and normal at the position
                 const y = this.terrainService.getHeightAt(x, 0, z)
-                if (isNaN(y)) {
-                    // console.warn(`Invalid terrain height at (${x.toFixed(2)}, ${z.toFixed(2)}), skipping.`);
-                    continue // Skip if height is invalid
-                }
+                if (isNaN(y)) continue
+
                 const normal = this.terrainService.getNormalAt(x, y, z)
-                if (!normal || isNaN(normal.x) || isNaN(normal.y) || isNaN(normal.z)) {
-                    // console.warn(`Invalid terrain normal at (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}), skipping.`);
-                    continue // Skip if normal is invalid
-                }
+                if (!normal || isNaN(normal.x) || isNaN(normal.y) || isNaN(normal.z)) continue
 
                 const position = new THREE.Vector3(x, y, z)
 
-                // Determine rotation: align to terrain normal, random Y rotation
                 this.rotationQuaternion.setFromUnitVectors(this.upVector, normal.normalize())
-                const rotation = new THREE.Euler().setFromQuaternion(this.rotationQuaternion, "YXZ") // Use YXZ order potentially
-                rotation.y = Math.random() * Math.PI * 2 // Random rotation around the object's up axis
+                const rotation = new THREE.Euler().setFromQuaternion(this.rotationQuaternion, "YXZ")
+                rotation.y = Math.random() * Math.PI * 2
 
-                // Weighted random selection of entity type
-                const rand = Math.random() * totalProbability // Use totalProbability if it's not 1
+                const rand = Math.random() * totalProbability
                 let selectedConfig = null
                 for (const config of weightedTypes) {
                     if (rand < config.cumulativeProb) {
@@ -247,43 +258,38 @@ export class EnvironmentManager {
                         break
                     }
                 }
+                if (!selectedConfig) continue
 
-                if (!selectedConfig) continue // Should not happen if probabilities sum >= 1
-
-                const EntityClass = selectedConfig.class as IInstancedEnvironmentEntityClass
+                const EntityClass = selectedConfig.class as EnvironmentEntityType
                 const targetArray = this.managedObjects.get(EntityClass)
-                if (!targetArray || targetArray.length >= EntityClass.MAX_INSTANCES) {
-                    continue // Skip if max instances reached for this type
-                }
+                if (!targetArray || targetArray.length >= EntityClass.MAX_INSTANCES) continue
 
-                // Create and add the object
                 this.createAndAddEnvironmentObject(EntityClass, selectedConfig, targetArray, position, rotation)
-                allPositions.push(position.clone()) // Add placed position
+                allPositions.push(position.clone())
                 totalGeneratedCount++
             } catch (error) {
-                // console.error(`Failed to process terrain or create object near (${x.toFixed(2)}, ${z.toFixed(2)}):`, error);
-                continue // Safely continue to next attempt
+                console.warn(`Error during object generation attempt near (${x.toFixed(2)}, ${z.toFixed(2)}):`, error)
+                continue
             }
         }
 
-        // Update InstancedMesh counts after generation
         this.updateAllInstancedMeshCounts()
 
-        console.log(`Generated ${totalGeneratedCount} environment objects across all types.`) // Log total actual generated
+        console.log(`Generated ${totalGeneratedCount} environment objects across all types.`)
         this.managedObjects.forEach((arr, cls) => {
             console.log(` - ${cls.MODEL_NAME}: ${arr.length}`)
         })
     }
 
     private createAndAddEnvironmentObject(
-        EntityClass: IInstancedEnvironmentEntityClass,
+        EntityClass: EnvironmentEntityType,
         config: { scaleMin: number; scaleRange: number },
         targetArray: ManagedEnvironmentObject[],
         position: THREE.Vector3,
         rotation: THREE.Euler,
     ): void {
-        const instanceId = targetArray.length // Next available ID for this type
-        const entity = new EntityClass(instanceId)
+        const instanceId = targetArray.length
+        const entity = new EntityClass(instanceId) // Reverted: Pass only instanceId
 
         const scaleVal = config.scaleMin + Math.random() * config.scaleRange
         const scale = new THREE.Vector3(scaleVal, scaleVal, scaleVal)
@@ -295,18 +301,23 @@ export class EnvironmentManager {
             scale,
             rotation,
             distanceSq: Infinity,
-            isVisible: false, // Initially not visible, updated in forceInitialUpdate/update
+            isVisible: false,
+            worldMatrix: new THREE.Matrix4(),
         })
     }
 
     // Update the count property of all InstancedMeshes based on current array lengths
     private updateAllInstancedMeshCounts(): void {
         this.managedObjects.forEach((arr, cls) => {
-            const mesh = cls.getInstancedMesh()
-            if (mesh && mesh.count !== arr.length) {
-                // console.log(`Setting ${mesh.name}.count to ${arr.length}`); // Optional log
-                mesh.count = arr.length
-                mesh.instanceMatrix.needsUpdate = true // Important: flag matrix update after count change
+            const meshes = cls.getInstancedMeshes() // Get array of meshes
+            if (meshes) {
+                meshes.forEach(mesh => {
+                    if (mesh && mesh.count !== arr.length) {
+                        // console.log(`Setting ${mesh.name}.count to ${arr.length}`);
+                        mesh.count = arr.length
+                        mesh.instanceMatrix.needsUpdate = true
+                    }
+                })
             }
         })
     }
@@ -386,7 +397,7 @@ export class EnvironmentManager {
             targetMatrix = this.zeroScaleMatrix // Use precomputed zero scale matrix
         } else {
             // Determine LOD scale factor
-            let lodScaleFactor = 1.0
+            let lodScaleFactor = LOD_SCALE_FACTORS.HIGH
             if (obj.distanceSq > LOD_DISTANCES_SQUARED.MEDIUM) {
                 lodScaleFactor = LOD_SCALE_FACTORS.LOW
             } else if (obj.distanceSq > LOD_DISTANCES_SQUARED.HIGH) {
@@ -423,8 +434,43 @@ export class EnvironmentManager {
             }
         }
 
+        // Store the calculated matrix (even if it's zero scale)
+        obj.worldMatrix.copy(targetMatrix)
         // Update the specific instance in the InstancedMesh
         obj.entity.updateInstance(targetMatrix)
+    }
+
+    // --- Method for Collision Detection ---
+    /**
+     * Gets environment objects potentially near a given position and radius.
+     * Filters by distanceSq for broad phase check.
+     */
+    public getNearbyObjects(position: THREE.Vector3, radius: number): ManagedEnvironmentObject[] {
+        const nearby: ManagedEnvironmentObject[] = []
+        const radiusSq = radius * radius
+
+        this.managedObjects.forEach(objects => {
+            objects.forEach(obj => {
+                // Check only potentially visible objects (simple broad phase)
+                // And check if their position is within radiusSq of the query position
+                if (obj.isVisible && obj.position.distanceToSquared(position) <= radiusSq) {
+                    // Further check: use bounding box intersection if available
+                    const objBox = obj.entityClass.getBoundingBox()
+                    if (objBox) {
+                        // Rough check using object position and bounding box size
+                        const approxRadius = objBox.getSize(new THREE.Vector3()).length() / 2
+                        const combinedRadius = radius + approxRadius
+                        if (obj.position.distanceToSquared(position) <= combinedRadius * combinedRadius) {
+                            nearby.push(obj)
+                        }
+                    } else {
+                        // If no bounding box, rely on position check only
+                        nearby.push(obj)
+                    }
+                }
+            })
+        })
+        return nearby
     }
 
     public dispose(): void {
@@ -445,10 +491,10 @@ export class EnvironmentManager {
 
         // Remove instanced meshes from the scene (they might already be removed by disposeShared)
         Object.values(ENTITY_GENERATION_CONFIG).forEach(config => {
-            const EntityClass = config.class as IInstancedEnvironmentEntityClass
-            const mesh = this.scene.getObjectByName(`${EntityClass.MODEL_NAME}InstancedMesh`)
-            if (mesh) {
-                this.scene.remove(mesh)
+            const EntityClass = config.class as EnvironmentEntityType
+            const meshes = this.scene.getObjectByName(`${EntityClass.MODEL_NAME}InstancedMesh`)
+            if (meshes) {
+                this.scene.remove(meshes)
                 // console.log(`Removed ${mesh.name} from scene during dispose.`) // Optional log
             }
         })
