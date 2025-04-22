@@ -1,79 +1,106 @@
 import * as THREE from "three"
-import { Entity } from "../core/Entity"
-import { ModelComponent } from "../components/ModelComponent"
-import { TransformComponent } from "../components/TransformComponent"
-import { ITerrainService } from "../core/ITerrainService"
+import { ResourceManager } from "../core/ResourceManager"
 
-export class Tree extends Entity {
-    // 단일 InstancedMesh 방식으로 복원
-    private static maxInstances: number = 0
-    private static instancedMesh: THREE.InstancedMesh | null = null
-    private static modelGeometry: THREE.BufferGeometry | null = null
-    private static modelMaterial: THREE.Material | null = null
-    private static loadPromise: Promise<void> | null = null
+// Type definition for classes that manage instanced environment entities
+export interface IInstancedEnvironmentEntityClass {
+    MODEL_PATH: string
+    MODEL_NAME: string
+    MAX_INSTANCES: number
+    CAST_SHADOW: boolean
+    RECEIVE_SHADOW: boolean
+    instancedMesh: THREE.InstancedMesh | null
+    boundingBox: THREE.Box3 | null
 
-    private transform: TransformComponent
-    private model: ModelComponent
-    private terrainService: ITerrainService
-    private instanceId: number = -1
-
-    constructor(terrainService: ITerrainService) {
-        super()
-        this.terrainService = terrainService
-        this.transform = new TransformComponent()
-        this.model = new ModelComponent()
-        this.addComponent(this.transform)
-        this.addComponent(this.model)
+    new (instanceId: number): {
+        setInstanceId(id: number): void
+        updateInstance(matrix: THREE.Matrix4): void
+        dispose(): void // Individual instance dispose (usually no-op)
     }
 
-    public static async initializeShared(terrainService: ITerrainService, maxInstances: number): Promise<void> {
+    initializeShared(resourceManager: ResourceManager): Promise<void>
+    getInstancedMesh(): THREE.InstancedMesh | null
+    getMaxInstances(): number
+    getBoundingBox(): THREE.Box3 | null
+    disposeShared(): void
+}
+
+export class Tree {
+    // --- Static Configuration ---
+
+    public static readonly MODEL_PATH = "models/tree/tree01.glb"
+    public static readonly MODEL_NAME = "tree"
+    public static readonly MAX_INSTANCES = 500 // External config preferred
+    public static readonly CAST_SHADOW = true
+    public static readonly RECEIVE_SHADOW = true
+    // ---------------------------
+
+    public static instancedMesh: THREE.InstancedMesh | null = null
+    private static modelGeometry: THREE.BufferGeometry | null = null
+    private static modelMaterial: THREE.Material | THREE.Material[] | null = null
+    private static loadPromise: Promise<void> | null = null
+    public static boundingBox: THREE.Box3 | null = null // Original model bounding box
+
+    private instanceId: number = -1
+
+    constructor(instanceId: number) {
+        this.setInstanceId(instanceId)
+    }
+
+    public static async initializeShared(resourceManager: ResourceManager): Promise<void> {
         if (Tree.instancedMesh) return
-        this.maxInstances = maxInstances
         if (this.loadPromise) return this.loadPromise
 
         this.loadPromise = new Promise<void>(async (resolve, reject) => {
             try {
-                console.log("[Tree] Loading shared tree model...")
-                const resourceManager = terrainService.getResourceManager()
-                const model = await resourceManager.loadModel("tree", "models/tree/tree01.glb")
-                console.log("[Tree] Shared model loaded:", model)
-
-                // 모델에 기본 회전 적용 (X축으로 -90도 회전하여 수직으로 세움)
-                model.rotation.x = -Math.PI / 2
+                const model = await resourceManager.loadModel(Tree.MODEL_NAME, Tree.MODEL_PATH)
 
                 let mesh: THREE.Mesh | null = null
                 model.traverse(child => {
+                    // Find the first mesh to use for instancing
                     if (child instanceof THREE.Mesh && !mesh) {
-                        console.log("[Tree] Found mesh in model:", child.name)
                         mesh = child
-                        if (Array.isArray(child.material)) {
-                            this.modelMaterial = child.material[0]
-                        } else {
-                            this.modelMaterial = child.material
-                        }
+                        // Use the material(s) from the mesh
+                        this.modelMaterial = child.material
                     }
                 })
 
                 if (!mesh || !this.modelMaterial) {
-                    throw new Error("No mesh or material found in tree model")
+                    throw new Error(`No mesh or material found in tree model: ${Tree.MODEL_PATH}`)
                 }
 
                 this.modelGeometry = mesh.geometry
-                this.instancedMesh = new THREE.InstancedMesh(this.modelGeometry, this.modelMaterial, maxInstances)
-                this.instancedMesh.castShadow = true // 그림자 생성 활성화
-                this.instancedMesh.receiveShadow = true
 
-                // 인스턴스 행렬 초기화
-                const matrix = new THREE.Matrix4()
-                for (let i = 0; i < maxInstances; i++) {
-                    this.instancedMesh.setMatrixAt(i, matrix)
+                // Compute bounding box from the geometry
+                if (!this.modelGeometry.boundingBox) {
+                    this.modelGeometry.computeBoundingBox()
                 }
-                this.instancedMesh.instanceMatrix.needsUpdate = true
-                console.log("[Tree] Shared InstancedMesh created with castShadow=true")
+                if (this.modelGeometry.boundingBox) {
+                    this.boundingBox = this.modelGeometry.boundingBox.clone()
+                    // Optional: Apply mesh's world matrix if needed (e.g., if mesh isn't at origin/identity scale in GLB)
+                    // this.boundingBox.applyMatrix4(mesh.matrixWorld);
+                } else {
+                    console.warn(`Could not compute bounding box for ${Tree.MODEL_NAME}`)
+                }
+
+                // Ensure material supports instancing if needed (e.g., custom shaders)
+
+                this.instancedMesh = new THREE.InstancedMesh(this.modelGeometry, this.modelMaterial, Tree.MAX_INSTANCES)
+                this.instancedMesh.castShadow = Tree.CAST_SHADOW
+                this.instancedMesh.receiveShadow = Tree.RECEIVE_SHADOW
+                this.instancedMesh.name = `${Tree.MODEL_NAME}InstancedMesh`
+                this.instancedMesh.frustumCulled = true // Enable frustum culling for performance
+
+                // Initialize all instances with zero scale matrix (invisible)
+                const zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0)
+                for (let i = 0; i < Tree.MAX_INSTANCES; i++) {
+                    this.instancedMesh.setMatrixAt(i, zeroMatrix)
+                }
+                this.instancedMesh.instanceMatrix.needsUpdate = true // Important after setting matrices
 
                 resolve()
             } catch (error) {
-                console.error("Failed to initialize shared tree resources:", error)
+                console.error(`Failed to initialize shared tree resources (${Tree.MODEL_NAME}):`, error)
+                this.loadPromise = null // Reset promise on error
                 reject(error)
             }
         })
@@ -81,75 +108,30 @@ export class Tree extends Entity {
         return this.loadPromise
     }
 
-    public override async initialize(): Promise<void> {
-        await super.initialize()
-        if (!Tree.instancedMesh) {
-            throw new Error("Tree shared resources not initialized")
-        }
-
-        try {
-            console.log("[Tree] Initializing individual tree model...")
-            const resourceManager = this.terrainService.getResourceManager()
-            const model = await resourceManager.loadModel("tree-individual", "models/tree/tree01.glb")
-            console.log("[Tree] Individual model loaded")
-
-            // 모델에 기본 회전 적용 (X축으로 -90도 회전하여 수직으로 세움)
-            model.rotation.x = -Math.PI / 2
-
-            // 트리 구조 디버깅
-            console.log("[Tree] Model structure:")
-            model.traverse(child => {
-                console.log(`[Tree] -- ${child.type}: ${child.name}`)
-                if (child instanceof THREE.Mesh) {
-                    console.log(`[Tree] ---- geometry: ${child.geometry.type}, vertices: ${child.geometry.attributes.position.count}`)
-                    console.log(`[Tree] ---- material: ${child.material.type}`)
-
-                    // 그림자 설정 활성화
-                    child.castShadow = true
-                    child.receiveShadow = true
-                    console.log(`[Tree] ---- shadow settings applied: castShadow=${child.castShadow}, receiveShadow=${child.receiveShadow}`)
-                }
-            })
-
-            this.model.setModel(model)
-        } catch (error) {
-            console.error("Failed to initialize tree model for ModelComponent:", error)
-        }
-    }
-
     public setInstanceId(id: number): void {
+        if (id < 0 || id >= Tree.MAX_INSTANCES) {
+            console.error(`Invalid instanceId assigned to Tree: ${id}. Max is ${Tree.MAX_INSTANCES - 1}`)
+            this.instanceId = -1 // Mark as invalid
+            return
+        }
         this.instanceId = id
     }
 
+    // Updates the matrix for this specific instance
     public updateInstance(matrix: THREE.Matrix4): void {
-        if (this.instanceId === -1 || !Tree.instancedMesh) return
-
-        // 회전 행렬 생성 (X축으로 -90도 회전)
-        const rotationMatrix = new THREE.Matrix4().makeRotationX(-Math.PI / 2)
-
-        // 입력된 행렬에 회전 행렬 곱하기
-        const finalMatrix = matrix.clone().multiply(rotationMatrix)
-
-        // 최종 행렬 적용
-        Tree.instancedMesh.setMatrixAt(this.instanceId, finalMatrix)
-        Tree.instancedMesh.instanceMatrix.needsUpdate = true
-
-        if (this.instanceId === 0) {
-            // 디버깅: 첫 번째 인스턴스의 위치 로깅
-            const position = new THREE.Vector3()
-            const quaternion = new THREE.Quaternion()
-            const scale = new THREE.Vector3()
-            finalMatrix.decompose(position, quaternion, scale)
-            console.log(
-                `[Tree] Instance #${this.instanceId} updated - position: [${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(
-                    2,
-                )}], scale: [${scale.x.toFixed(2)}, ${scale.y.toFixed(2)}, ${scale.z.toFixed(2)}]`,
-            )
+        if (this.instanceId === -1 || !Tree.instancedMesh) {
+            // Log error only once or use a different mechanism to avoid spamming
+            // console.error(`Attempted to update invalid Tree instance (${this.instanceId})`);
+            return
         }
-    }
 
-    public getModel(): THREE.Group {
-        return this.model.getModel()
+        try {
+            Tree.instancedMesh.setMatrixAt(this.instanceId, matrix)
+            // Flag the matrix for update. Consider optimizing this if updates are sparse.
+            Tree.instancedMesh.instanceMatrix.needsUpdate = true
+        } catch (error) {
+            console.error(`Error updating Tree instance ${this.instanceId} matrix:`, error)
+        }
     }
 
     public static getInstancedMesh(): THREE.InstancedMesh | null {
@@ -157,29 +139,39 @@ export class Tree extends Entity {
     }
 
     public static getMaxInstances(): number {
-        return Tree.maxInstances
+        return Tree.MAX_INSTANCES
     }
 
-    public override update(deltaTime: number): void {
-        super.update(deltaTime)
+    /**
+     * Returns the bounding box of the original model geometry.
+     * This does not account for instance-specific transformations (scale, rotation).
+     * Collision systems need to apply the instance's world matrix to this box.
+     */
+    public static getBoundingBox(): THREE.Box3 | null {
+        return this.boundingBox
     }
 
-    public override dispose(): void {
-        super.dispose()
-        this.model.dispose()
+    // Dispose method for individual instances (usually nothing to do here for instanced objects)
+    public dispose(): void {
+        // No THREE resources owned by individual instances
     }
 
+    // Dispose shared resources (geometry, material, instancedMesh)
     public static disposeShared(): void {
-        if (this.modelGeometry) {
-            this.modelGeometry = null
+        if (this.instancedMesh) {
+            // Remove from scene if attached
+            if (this.instancedMesh.parent) {
+                this.instancedMesh.parent.remove(this.instancedMesh)
+            }
+            // Dispose geometry and material if they are not shared elsewhere or managed by ResourceManager
+            // Assuming ResourceManager handles disposal of geometries/materials fetched via loadModel
+            this.instancedMesh = null
         }
-        if (this.modelMaterial) {
-            this.modelMaterial = null
-        }
-        if (this.instancedMesh && this.instancedMesh.parent) {
-            this.instancedMesh.parent.remove(this.instancedMesh)
-        }
-        this.instancedMesh = null
+        // Clear references
+        this.modelGeometry = null
+        this.modelMaterial = null
+        this.boundingBox = null
         this.loadPromise = null
+        // console.log(`${Tree.MODEL_NAME} shared resources disposed.`) // Optional log
     }
 }
