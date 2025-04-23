@@ -76,10 +76,10 @@ export abstract class Entity {
 
         for (const component of this._components.values()) {
             if (typeof component.update === "function") {
-                const componentUpdateLabel = `Component.update.${component.constructor.name}.${this.id}`
-                console.time(componentUpdateLabel)
+                // const componentUpdateLabel = `Component.update.${component.constructor.name}.${this.id}`
+                // console.time(componentUpdateLabel)
                 component.update(deltaTime)
-                console.timeEnd(componentUpdateLabel)
+                // console.timeEnd(componentUpdateLabel)
             }
         }
     }

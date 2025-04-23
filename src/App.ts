@@ -260,30 +260,30 @@ export class App {
     }
 
     private animate(): void {
-        console.time("App.animate.frame") // 전체 프레임 시간 측정 시작
+        // console.time("App.animate.frame") // 전체 프레임 시간 측정 시작
         requestAnimationFrame(this.animate)
 
-        console.time("App.Engine.update") // App에서 Engine 업데이트 호출 시간
+        // console.time("App.Engine.update") // App에서 Engine 업데이트 호출 시간
         this.engine.update()
-        console.timeEnd("App.Engine.update")
+        // console.timeEnd("App.Engine.update")
 
         // WorldManager 업데이트는 주석 처리 가능성을 고려
         // console.time("App.WorldManager.update");
         // this.worldManager.update()
         // console.timeEnd("App.WorldManager.update");
 
-        console.time("App.App.update") // App 자체 업데이트 시간
+        // console.time("App.App.update") // App 자체 업데이트 시간
         this.update()
-        console.timeEnd("App.App.update")
+        // console.timeEnd("App.App.update")
 
         // FPS 업데이트는 제외 (내부 로직이 간단)
         // this.updateFPS()
 
-        console.timeEnd("App.animate.frame") // 전체 프레임 시간 측정 종료
+        // console.timeEnd("App.animate.frame") // 전체 프레임 시간 측정 종료
     }
 
     private update(): void {
-        console.time("App.update.inner")
+        // console.time("App.update.inner")
 
         // WorldManager 업데이트 (EnvironmentManager 등 업데이트 포함)
         this.worldManager.update()
@@ -293,7 +293,7 @@ export class App {
 
         // Update OrbitControls (might be disabled)
         this.controls.update()
-        console.timeEnd("App.update.inner")
+        // console.timeEnd("App.update.inner")
     }
 
     private updateFPS(): void {

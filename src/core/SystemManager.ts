@@ -13,10 +13,10 @@ export class SystemManager {
     public update(deltaTime: number): void {
         // 시스템 업데이트
         for (const system of this.systems.values()) {
-            const systemUpdateLabel = `System.update.${system.constructor.name}`
-            console.time(systemUpdateLabel)
+            // const systemUpdateLabel = `System.update.${system.constructor.name}`
+            // console.time(systemUpdateLabel)
             system.update(deltaTime)
-            console.timeEnd(systemUpdateLabel)
+            // console.timeEnd(systemUpdateLabel)
         }
     }
 

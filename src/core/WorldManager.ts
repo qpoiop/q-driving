@@ -4,10 +4,13 @@ import { Road } from "../entities/Road"
 import { ResourceManager } from "./ResourceManager"
 import { ITerrainService } from "./ITerrainService"
 import { EnvironmentManager } from "./EnvironmentManager"
-import { Engine } from "./Engine"
 import { Car } from "../entities/Car"
 import { CarConfig } from "../config/CarConfig"
 import { InputSystem } from "../systems/InputSystem"
+import { PhysicsComponent } from "../components/PhysicsComponent"
+import { TransformComponent } from "../components/TransformComponent"
+import { Time } from "./Time"
+import { Engine } from "./Engine"
 
 export class WorldManager implements ITerrainService {
     private static instance: WorldManager | null = null
@@ -22,6 +25,13 @@ export class WorldManager implements ITerrainService {
     private directionalLight: THREE.DirectionalLight | null = null
     private fillLight: THREE.DirectionalLight | null = null
     private car: Car | null = null
+
+    // Helper objects for collision
+    private collisionNormal = new THREE.Vector3()
+    private relativeVelocity = new THREE.Vector3()
+    private impulse = new THREE.Vector3()
+    private carPositionVec = new THREE.Vector3()
+    private objectPositionVec = new THREE.Vector3()
 
     private constructor() {
         const engine = Engine.getInstance()
@@ -41,7 +51,8 @@ export class WorldManager implements ITerrainService {
         try {
             this.setupEnvironment()
 
-            const terrainConfig = { width: 300, height: 300, heightScale: 1.0, segments: 64, textureRepeat: 8 }
+            // Terrain setup (adjust parameters as needed for visual density)
+            const terrainConfig = { width: 500, height: 500, heightScale: 1.5, segments: 128, textureRepeat: 12 }
             this.terrain = new Terrain(this, terrainConfig)
             await this.terrain.initialize()
             this.terrain.getModel().traverse(object => {
@@ -50,7 +61,8 @@ export class WorldManager implements ITerrainService {
             this.terrain.setPosition(-terrainConfig.width / 2, 0, -terrainConfig.height / 2)
             this.scene.add(this.terrain.getModel())
 
-            const roadConfig = { width: 8, segments: 100, curveRadius: 150, curveSegments: 16, textureRepeat: 20 }
+            // Road setup (adjust parameters as needed)
+            const roadConfig = { width: 8, segments: 150, curveRadius: 180, curveSegments: 20, textureRepeat: 30 }
             this.road = new Road(this, roadConfig)
             await this.road.initialize()
             const roadModel = this.road.getModel()
@@ -59,11 +71,13 @@ export class WorldManager implements ITerrainService {
             })
             this.scene.add(roadModel)
 
+            // Environment Manager setup
             this.environmentManager = EnvironmentManager.getInstance(this, this.resourceManager, this.scene)
             await this.environmentManager.initialize()
 
+            // Lighting and Fog setup (adjust for visual style)
             this.setupLighting()
-            this.scene.fog = new THREE.Fog(0x87ceeb, 250, 1000)
+            this.scene.fog = new THREE.Fog(0xaaaaaa, 100, 600) // Adjusted fog
         } catch (error) {
             console.error("Failed to initialize world:", error)
             throw error
@@ -98,47 +112,49 @@ export class WorldManager implements ITerrainService {
     }
 
     private setupEnvironment(): void {
-        this.scene.background = new THREE.Color(0x87ceeb)
+        this.scene.background = new THREE.Color(0xaaaaaa) // Neutral background
         this.renderer.shadowMap.enabled = true
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+        this.renderer.toneMappingExposure = 1.0
     }
 
     private setupLighting(): void {
-        this.ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
-        this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
-        this.directionalLight.position.set(50, 100, 30)
+        this.ambientLight = new THREE.AmbientLight(0xffffff, 0.7) // Slightly brighter ambient
+        this.directionalLight = new THREE.DirectionalLight(0xffffff, 1.0) // Slightly brighter sun
+        this.directionalLight.position.set(70, 120, 50) // Adjusted sun position
         this.directionalLight.castShadow = true
         this.directionalLight.shadow.mapSize.width = 2048
         this.directionalLight.shadow.mapSize.height = 2048
-        this.directionalLight.shadow.camera.near = 50
-        this.directionalLight.shadow.camera.far = 250
+        this.directionalLight.shadow.camera.near = 10
+        this.directionalLight.shadow.camera.far = 300 // Reduced far plane for tighter shadows
         this.directionalLight.shadow.camera.left = -150
         this.directionalLight.shadow.camera.right = 150
         this.directionalLight.shadow.camera.top = 150
         this.directionalLight.shadow.camera.bottom = -150
-        this.directionalLight.shadow.bias = -0.001
+        this.directionalLight.shadow.bias = -0.002 // Adjusted bias
 
-        this.fillLight = new THREE.DirectionalLight(0xffffff, 0.4)
-        this.fillLight.position.set(-50, 50, -30)
+        this.fillLight = new THREE.DirectionalLight(0xaaaaaa, 0.4) // Neutral fill
+        this.fillLight.position.set(-70, 70, -50)
 
         this.scene.add(this.ambientLight)
         this.scene.add(this.directionalLight)
-        this.scene.add(this.directionalLight.target)
+        this.scene.add(this.directionalLight.target) // Ensure target is added
         this.scene.add(this.fillLight)
-        this.scene.add(this.fillLight.target)
+        this.scene.add(this.fillLight.target) // Ensure target is added
 
         this.updateLighting(true)
     }
 
     private updateLighting(isDay: boolean): void {
         this.isDay = isDay
-        const ambientIntensity = this.isDay ? 1.0 : 0.15
-        const directionalIntensity = this.isDay ? 1.0 : 0.1
-        const fillIntensity = this.isDay ? 0.5 : 0.05
-        const fogColor = this.isDay ? 0x87ceeb : 0x000020
-        const backgroundColor = this.isDay ? 0x87ceeb : 0x000011
-        const fogNear = this.isDay ? 250 : 50
-        const fogFar = this.isDay ? 1000 : 400
+        const ambientIntensity = this.isDay ? 0.7 : 0.1
+        const directionalIntensity = this.isDay ? 1.0 : 0.05
+        const fillIntensity = this.isDay ? 0.4 : 0.02
+        const fogColor = this.isDay ? 0xaaaaaa : 0x050510
+        const backgroundColor = this.isDay ? 0xaaaaaa : 0x020208
+        const fogNear = this.isDay ? 100 : 30
+        const fogFar = this.isDay ? 600 : 250
 
         if (this.ambientLight) this.ambientLight.intensity = ambientIntensity
         if (this.directionalLight) this.directionalLight.intensity = directionalIntensity
@@ -188,7 +204,65 @@ export class WorldManager implements ITerrainService {
     }
 
     public update(): void {
-        this.environmentManager?.update()
+        const engine = Engine.getInstance()
+        const camera = engine.getCamera()
+        const deltaTime = Time.getDeltaTime()
+
+        // Pass required info (deltaTime, camera and car position) to EnvironmentManager
+        const carPosition = this.car?.getComponent<TransformComponent>("transform")?.getPosition()
+        this.environmentManager?.update(deltaTime, camera, carPosition) // Pass deltaTime, camera and car position
+
+        // --- Improved Collision Detection & Response ---
+        if (this.car && this.environmentManager && carPosition) {
+            const carBox = this.car.getWorldBoundingBox()
+            const physics = this.car.getComponent<PhysicsComponent>("physics")
+            const carVelocity = physics?.getVelocity() // Get car velocity for response
+
+            if (carBox && physics && carVelocity) {
+                const nearbyObjects = this.environmentManager.getNearbyObjects(carPosition, 5) // Adjust radius as needed
+                let collisionOccurred = false
+
+                for (const obj of nearbyObjects) {
+                    const objBox = obj.entity.getWorldBoundingBox(obj)
+                    if (objBox && carBox.intersectsBox(objBox)) {
+                        if (!collisionOccurred) {
+                            // Handle only first collision per frame for stability
+                            console.error("COLLISION DETECTED between Car and", obj.entityClass.MODEL_NAME, `[${obj.entity.instanceId}]`)
+                            collisionOccurred = true
+
+                            // Calculate collision normal (approximate: from object center to car center)
+                            this.carPositionVec.copy(carPosition)
+                            this.objectPositionVec.copy(obj.position)
+                            this.collisionNormal.subVectors(this.carPositionVec, this.objectPositionVec).normalize()
+
+                            // Calculate relative velocity along the normal
+                            this.relativeVelocity.copy(carVelocity) // Simple approximation
+                            const velocityAlongNormal = this.relativeVelocity.dot(this.collisionNormal)
+
+                            // Calculate impulse magnitude (using restitution e=0.3)
+                            const restitution = 0.3
+                            let impulseMagnitude = -(1 + restitution) * velocityAlongNormal
+                            // Use getter for mass
+                            const carMass = physics.getMass()
+                            if (carMass > 0) {
+                                // Avoid division by zero
+                                impulseMagnitude /= 1 / carMass // Simplified: assume object mass is infinite
+                            } else {
+                                impulseMagnitude = 0 // No impulse if mass is invalid
+                            }
+
+                            // Apply impulse
+                            this.impulse.copy(this.collisionNormal).multiplyScalar(impulseMagnitude)
+                            physics.applyImpulse(this.impulse)
+
+                            // Break after handling the first collision this frame
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        // ---------------------------------
     }
 
     public dispose(): void {
