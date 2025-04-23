@@ -148,26 +148,26 @@ export class App {
                 acceleration: 300, // 기본 가속력 (N)
                 deceleration: 200, // 기본 제동력 (N, 브레이크 시)
                 grip: 1.0, // 기본 타이어 그립 계수 (현재는 Drag 계산에서 제외됨, 추후 활용 가능)
-                turnSpeed: 1.5, // 기본 회전 속도 계수
+                turnSpeed: 3.0, // 기본 회전 속도 계수
                 momentOfInertia: 1000, // 관성 모멘트 (회전 저항, 현재 미사용)
                 torqueCurve: [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000], // RPM별 엔진 토크 (현재 미사용)
                 gearRatios: [3.0, 2.0, 1.5, 1.0, 0.8, 0.6], // 기어비 (현재 미사용)
                 tireFriction: 10, // 타이어 마찰 계수 (횡력 계산에 영향)
                 aerodynamicDrag: 0.3, // 공기 역학적 항력 계수 (속도 제곱 비례)
-                liftCoefficient: 0.5, // 양력 계수 (고속에서 차체를 누르거나 뜨게 함)
+                liftCoefficient: 0.1, // 양력 계수 (고속에서 차체를 누르거나 뜨게 함)
                 frontWheelDrive: true, // 전륜 구동 여부 (현재 미사용)
                 rearWheelDrive: false, // 후륜 구동 여부 (현재 미사용)
                 allWheelDrive: false, // 사륜 구동 여부 (현재 미사용)
                 rollingResistanceCoefficient: 0.05, // 구름 저항 계수 (저속 감속에 중요)
-                backwardAccelerationFactor: 0.7, // 후진 가속력 비율 (기본 가속력 대비)
-                tireStiffnessMultiplier: 50, // 타이어 측면 강성 승수 (횡력 계산에 영향)
+                backwardAccelerationFactor: 1.0, // 후진 가속력 비율 (기본 가속력 대비)
+                tireStiffnessMultiplier: 150, // 타이어 측면 강성 승수 (횡력 계산에 영향)
             }
 
             const suspensionConfig: SuspensionConfig = {
                 stiffness: 100, // 서스펜션 스프링 강성
                 damping: 0.5, // 서스펜션 댐핑 계수 (진동 흡수)
                 compression: 0.1, // 서스펜션 압축 관련 값 (현재 미사용?)
-                restLength: 2, // 서스펜션 기본 길이
+                restLength: 2.8, // 서스펜션 기본 길이
                 rollCenterHeight: 0.5, // 롤 센터 높이 (차체 기울어짐 기준점, 현재 미사용?)
                 antiRollBar: 0.3, // 안티롤바 강성 (좌우 쏠림 억제)
                 wheelRadius: 0.4, // 바퀴 반지름

@@ -124,8 +124,8 @@ export class WorldManager implements ITerrainService {
         this.directionalLight = new THREE.DirectionalLight(0xffffff, 1.0) // Slightly brighter sun
         this.directionalLight.position.set(70, 120, 50) // Adjusted sun position
         this.directionalLight.castShadow = true
-        this.directionalLight.shadow.mapSize.width = 2048
-        this.directionalLight.shadow.mapSize.height = 2048
+        this.directionalLight.shadow.mapSize.width = 1024 // Reduced shadow map size
+        this.directionalLight.shadow.mapSize.height = 1024 // Reduced shadow map size
         this.directionalLight.shadow.camera.near = 10
         this.directionalLight.shadow.camera.far = 300 // Reduced far plane for tighter shadows
         this.directionalLight.shadow.camera.left = -150
@@ -219,7 +219,7 @@ export class WorldManager implements ITerrainService {
             const carVelocity = physics?.getVelocity() // Get car velocity for response
 
             if (carBox && physics && carVelocity) {
-                const nearbyObjects = this.environmentManager.getNearbyObjects(carPosition, 5) // Adjust radius as needed
+                const nearbyObjects = this.environmentManager.getNearbyObjects(carPosition, 2) // Reduced radius from 5 to 2
                 let collisionOccurred = false
 
                 for (const obj of nearbyObjects) {
@@ -234,6 +234,11 @@ export class WorldManager implements ITerrainService {
                             this.carPositionVec.copy(carPosition)
                             this.objectPositionVec.copy(obj.position)
                             this.collisionNormal.subVectors(this.carPositionVec, this.objectPositionVec).normalize()
+
+                            // --- Prevent sinking by flattening the normal to XZ plane --- //
+                            this.collisionNormal.y = 0
+                            this.collisionNormal.normalize() // Re-normalize after flattening
+                            // -------------------------------------------------------------- //
 
                             // Calculate relative velocity along the normal
                             this.relativeVelocity.copy(carVelocity) // Simple approximation

@@ -30,7 +30,7 @@ export class Tree extends BaseEnvironmentEntity {
 
     public static readonly MODEL_PATH = "models/tree/tree01.glb"
     public static readonly MODEL_NAME = "tree"
-    public static readonly MAX_INSTANCES = 50 // External config preferred
+    public static readonly MAX_INSTANCES = 25 // Reduced from 50
     public static readonly CAST_SHADOW = true
     public static readonly RECEIVE_SHADOW = true
     // --- Model specific adjustments ---

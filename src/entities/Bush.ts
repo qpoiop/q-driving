@@ -25,7 +25,7 @@ export class Bush extends BaseEnvironmentEntity {
     // --- Static Configuration ---
     public static readonly MODEL_PATH = "models/bush/bush01.glb"
     public static readonly MODEL_NAME = "bush"
-    public static readonly MAX_INSTANCES = 300
+    public static readonly MAX_INSTANCES = 50
     public static readonly CAST_SHADOW = true
     public static readonly RECEIVE_SHADOW = true
     // ---------------------------

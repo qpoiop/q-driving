@@ -280,22 +280,42 @@ export class PhysicsComponent extends Component {
             this.velocity.normalize().multiplyScalar(this.config.maxSpeed)
         }
         // If speed is very low and no input, stop completely to prevent creeping
-        if (currentSpeedSq < 0.01 && direction.x === 0 && direction.z === 0 && !input.isBraking()) {
-            this.velocity.set(0, 0, 0)
+        // Temporarily commented out to test collision response
+        // if (currentSpeedSq < 0.01 && direction.x === 0 && direction.z === 0 && !input.isBraking()) {
+        //     this.velocity.set(0, 0, 0)
+        // }
+
+        // --- 각속도 계산 (단순화된 회전 로직) --- //
+        const turnFactor = THREE.MathUtils.clamp(this.velocity.length() / (this.config.maxSpeed * 0.3), 0, 1) // Re-enabled: Less turning power at low speed
+        const effectiveTurnSpeed = this.currentTurnSpeed * turnFactor // Re-enabled: Use turnFactor
+
+        // 기본 각속도 계산
+        let baseAngularY = -direction.x * effectiveTurnSpeed * deltaTime
+
+        // 후진 중인지 확인 (localZVelocity는 이전에 계산됨)
+        if (localZVelocity < -0.1) {
+            // 작은 임계값을 두어 거의 정지 상태에서는 방향이 바뀌지 않도록 함
+            baseAngularY *= -1 // 후진 시 회전 방향 반전
         }
 
-        // Angular Velocity (simplified turning logic)
-        const turnFactor = THREE.MathUtils.clamp(this.velocity.length() / (this.config.maxSpeed * 0.3), 0, 1) // Less turning power at low speed
-        const effectiveTurnSpeed = this.currentTurnSpeed * turnFactor
-        this.angularVelocity.y = -direction.x * effectiveTurnSpeed * deltaTime
+        this.angularVelocity.y = baseAngularY
 
-        // Apply Velocity and Angular Velocity to Transform
-        transform.translateZ(this.velocity.z * deltaTime) // Assumes forward is local Z
-        transform.translateX(this.velocity.x * deltaTime) // Assumes right is local X
-        transform.translateY(this.velocity.y * deltaTime)
-        transform.rotateY(this.angularVelocity.y) // Assumes Y is the rotation axis
+        // 회전 디버깅 로그 (필요시 사용)
+        // if (Math.abs(direction.x) > 0.1) {
+        //     console.log(`Physics Turn Debug: inputX=${direction.x.toFixed(2)}, effectiveTurnSpeed=${effectiveTurnSpeed.toFixed(2)}, angularVelY=${this.angularVelocity.y.toFixed(4)}`);
+        // }
 
-        // Update RPM, Gear, etc. (simplified)
+        // --- 위치 및 회전 적용 --- // 주석 추가
+        // 속도 벡터를 이용한 월드 좌표계 이동 변위 계산
+        const displacement = this._tempVelocityClone.copy(this.velocity).multiplyScalar(deltaTime)
+        const currentPosition = transform.getPosition() // Get current position
+        currentPosition.add(displacement) // Add world displacement vector
+        transform.setPosition(currentPosition.x, currentPosition.y, currentPosition.z) // Correct: Set updated position using components
+
+        // Y축 기준 회전 적용
+        transform.rotateY(this.angularVelocity.y)
+
+        // RPM, 기어 등 상태 업데이트 (단순화)
         this.rpm = this.velocity.length() * 60 // Very rough estimate
         // Simple gear logic placeholder
         if (this.rpm > 6000 && this.currentGear < this.config.gearRatios.length - 1) {

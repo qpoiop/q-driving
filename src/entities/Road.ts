@@ -263,32 +263,26 @@ export class Road extends Entity {
      * @param checkWidth 확인할 도로 폭 (Padding 포함)
      */
     public isPointOnRoad(x: number, z: number, checkWidth?: number): boolean {
-        if (!this.path) return false // 경로가 없으면 false
+        // 경로 유효성 및 길이 확인
+        if (!this.path || this.path.curves.length === 0) {
+            // console.warn("isPointOnRoad called before path is generated or path is empty.");
+            return false
+        }
+        const roadLength = this.path.getLength()
+        if (!isFinite(roadLength) || roadLength <= 0) {
+            // console.warn("isPointOnRoad: Invalid road length calculated.");
+            return false
+        }
 
         const roadWidth = checkWidth ?? this.config.width
         const halfWidth = roadWidth / 2
 
-        // 1. 주어진 점과 가장 가까운 도로 경로상의 점 찾기 (근사)
-        let minDistanceSq = Infinity
-        let closestPointOnPath = new THREE.Vector3()
-        const samplePoint = new THREE.Vector3(x, 0, z) // y는 무시하고 xz 평면에서 비교
-
-        const divisions = 100 // 경로 샘플링 해상도 (필요에 따라 조절)
-        for (let i = 0; i <= divisions; i++) {
-            const t = i / divisions
-            const pathPoint = this.path.getPoint(t)
-            const distanceSq = samplePoint.distanceToSquared(pathPoint)
-            if (distanceSq < minDistanceSq) {
-                minDistanceSq = distanceSq
-                closestPointOnPath.copy(pathPoint) // 가장 가까운 점 업데이트
-            }
+        // 간단한 X 좌표 및 Z 범위 확인 (도로가 Z축 방향으로 생성됨을 가정)
+        if (Math.abs(x) <= halfWidth && z >= -roadLength / 2 && z <= roadLength / 2) {
+            return true
         }
 
-        // 2. 주어진 점과 가장 가까운 경로 점 사이의 거리 계산
-        const distanceToPath = samplePoint.distanceTo(closestPointOnPath)
-
-        // 3. 거리가 도로 폭의 절반보다 작으면 도로 위에 있다고 판단
-        return distanceToPath <= halfWidth
+        return false
     }
 
     public getWidth(): number {

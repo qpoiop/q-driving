@@ -280,6 +280,11 @@ export class EnvironmentManager {
 
     // --- TRANSPARENCY & FADING ---
     private handleTransparency(cameraPosition: THREE.Vector3, currentCarPosition: THREE.Vector3 | null): void {
+        // Reduce frequency of raycasting for performance
+        if (this.frameCounter % 10 !== 0) {
+            return
+        }
+
         const currentlyOccludedInstanceIds = new Set<string>() // Store as "meshUUID_instanceId"
 
         if (currentCarPosition && this.objectsToRaycast.length > 0) {

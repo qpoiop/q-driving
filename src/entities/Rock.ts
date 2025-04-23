@@ -25,7 +25,7 @@ export class Rock extends BaseEnvironmentEntity {
     // --- Static Configuration ---
     public static readonly MODEL_PATH = "models/rock/rock01.glb"
     public static readonly MODEL_NAME = "rock"
-    public static readonly MAX_INSTANCES = 50
+    public static readonly MAX_INSTANCES = 25
     public static readonly CAST_SHADOW = true
     public static readonly RECEIVE_SHADOW = true
     // ---------------------------
