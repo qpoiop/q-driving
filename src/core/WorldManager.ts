@@ -33,6 +33,10 @@ export class WorldManager implements ITerrainService {
     private carPositionVec = new THREE.Vector3()
     private objectPositionVec = new THREE.Vector3()
 
+    // Collision Cooldown state
+    private currentFrame: number = 0
+    private collisionCooldowns: Map<number, number> = new Map() // Key: object instanceId, Value: frame to end cooldown
+
     private constructor() {
         const engine = Engine.getInstance()
         this.resourceManager = ResourceManager.getInstance()
@@ -223,11 +227,19 @@ export class WorldManager implements ITerrainService {
                 let collisionOccurred = false
 
                 for (const obj of nearbyObjects) {
+                    const instanceId = obj.entity.instanceId // Get instance ID
+
+                    // --- Check Cooldown --- //
+                    if (this.collisionCooldowns.has(instanceId) && this.currentFrame < this.collisionCooldowns.get(instanceId)!) {
+                        continue // Skip collision check if cooldown is active
+                    }
+                    // -------------------- //
+
                     const objBox = obj.entity.getWorldBoundingBox(obj)
                     if (objBox && carBox.intersectsBox(objBox)) {
                         if (!collisionOccurred) {
                             // Handle only first collision per frame for stability
-                            console.error("COLLISION DETECTED between Car and", obj.entityClass.MODEL_NAME, `[${obj.entity.instanceId}]`)
+                            console.log("COLLISION DETECTED between Car and", obj.entityClass.MODEL_NAME, `[${instanceId}]`) // Log with instanceId
                             collisionOccurred = true
 
                             // Calculate collision normal (approximate: from object center to car center)
@@ -260,6 +272,11 @@ export class WorldManager implements ITerrainService {
                             this.impulse.copy(this.collisionNormal).multiplyScalar(impulseMagnitude)
                             physics.applyImpulse(this.impulse)
 
+                            // --- Set Cooldown --- //
+                            const cooldownFrames = 30 // Approx 0.5 seconds at 60fps
+                            this.collisionCooldowns.set(instanceId, this.currentFrame + cooldownFrames)
+                            // -------------------- //
+
                             // Break after handling the first collision this frame
                             break
                         }
@@ -268,6 +285,9 @@ export class WorldManager implements ITerrainService {
             }
         }
         // ---------------------------------
+
+        // Increment frame counter for cooldown logic
+        this.currentFrame++
     }
 
     public dispose(): void {

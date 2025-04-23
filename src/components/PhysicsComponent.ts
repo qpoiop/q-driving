@@ -173,7 +173,7 @@ export class PhysicsComponent extends Component {
         const tireStiffness = this.config.tireFriction * this.config.tireStiffnessMultiplier
         let lateralForceMagnitude = lateralSlipFactor * tireStiffness
         const gripReduction = 1.0 - Math.min(1, speed / (this.config.maxSpeed * 1.5))
-        lateralForceMagnitude *= 0.5 + gripReduction * 0.5
+        lateralForceMagnitude *= 0.8 + gripReduction * 0.2 // Make reduction less aggressive (more grip at high speed)
         const maxLateralForce = this.config.mass * 9.81 * this.config.tireFriction
         lateralForceMagnitude = THREE.MathUtils.clamp(lateralForceMagnitude, -maxLateralForce, maxLateralForce)
         if (isNaN(lateralForceMagnitude)) lateralForceMagnitude = 0

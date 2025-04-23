@@ -160,7 +160,7 @@ export class App {
                 allWheelDrive: false, // 사륜 구동 여부 (현재 미사용)
                 rollingResistanceCoefficient: 0.05, // 구름 저항 계수 (저속 감속에 중요)
                 backwardAccelerationFactor: 1.0, // 후진 가속력 비율 (기본 가속력 대비)
-                tireStiffnessMultiplier: 150, // 타이어 측면 강성 승수 (횡력 계산에 영향)
+                tireStiffnessMultiplier: 120, // 타이어 측면 강성 승수 (횡력 계산에 영향)
             }
 
             const suspensionConfig: SuspensionConfig = {
@@ -208,7 +208,7 @@ export class App {
             const cameraController = this.engine.getCameraController()
             cameraController.setMode(CameraMode.FOLLOW)
             cameraController.setTarget(this.car)
-            cameraController.setSmoothFactor(0.1)
+            cameraController.setSmoothFactor(0.05)
             console.log("Camera controller set up for car")
             this.loadingScreen.updateProgress(0.8)
 
