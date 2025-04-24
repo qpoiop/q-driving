@@ -98,6 +98,10 @@ export class WorldManager implements ITerrainService {
             this.car = new Car(this, carConfig, inputSystem)
             await this.car.initialize()
 
+            // --- Set initial headlight state based on current time ---
+            this.car.setNightMode(!this.isDay)
+            // -------------------------------------------------------
+
             const carModel = this.car.getModel()
             if (!carModel) {
                 throw new Error("Car model is missing after initialization")

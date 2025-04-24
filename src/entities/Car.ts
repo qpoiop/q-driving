@@ -8,6 +8,7 @@ import { InputComponent } from "../components/InputComponent"
 import { ITerrainService } from "../core/ITerrainService"
 import { InputSystem } from "../systems/InputSystem"
 import { CarConfig } from "../config/CarConfig"
+import { Engine } from "../core/Engine"
 
 export class Car extends Entity {
     private terrainService: ITerrainService
@@ -99,10 +100,12 @@ export class Car extends Entity {
 
     public setNightMode(isNightMode: boolean): void {
         this.isNightMode = isNightMode
+        console.log(`[Car] setNightMode called. isNightMode: ${isNightMode}`)
         // Update light visibility based on mode
         if (this.headlight) {
             this.headlight.visible = this.isNightMode
-            this.headlight.target.visible = this.isNightMode // Target might also need visibility toggle
+            // this.headlight.target.visible = this.isNightMode // Target visibility is usually not needed
+            console.log(`[Car] Headlight visibility set to: ${this.headlight.visible}`)
         }
         if (this.taillight) {
             // Taillights might always be visible, or only when braking/night
@@ -178,12 +181,13 @@ export class Car extends Entity {
 
     private setupLights(): void {
         const modelComponent = this.getComponent<ModelComponent>("model")
-        if (!modelComponent) return
+        const scene = Engine.getInstance().getScene()
+        if (!modelComponent || !scene) return
 
         const model = modelComponent.getModel()
-        this.headlight = new THREE.SpotLight(0xffffff, 5, 100, Math.PI / 3.5, 0.3, 1)
+        this.headlight = new THREE.SpotLight(0xffffff, 50, 150, Math.PI / 3.5, 0.3, 1)
         this.headlight.position.set(0, 0.8, 1.5)
-        this.headlight.target.position.set(0, 0.5, 10)
+        this.headlight.target.position.set(0, 0.5, 20)
         this.headlight.castShadow = true
         this.headlight.shadow.mapSize.width = 1024
         this.headlight.shadow.mapSize.height = 1024
@@ -191,7 +195,7 @@ export class Car extends Entity {
         this.headlight.shadow.camera.far = 100
 
         model.add(this.headlight)
-        model.add(this.headlight.target)
+        scene.add(this.headlight.target)
 
         this.taillight = new THREE.SpotLight(0xff0000, 3, 50, Math.PI / 4, 0.5, 2)
         this.taillight.position.set(0, 0.8, -1.8)
@@ -277,7 +281,39 @@ export class Car extends Entity {
         model.updateWorldMatrix(true, false) // Force update for this calculation if needed
         worldBox.applyMatrix4(model.matrixWorld) // Apply world matrix
 
+        worldBox.expandByScalar(-0.1)
+
         return worldBox
+    }
+
+    // --- Helper objects for update ---
+    private _forwardVector = new THREE.Vector3()
+    private _targetPosition = new THREE.Vector3()
+
+    // Override update method to handle headlight target update
+    public override update(deltaTime: number): void {
+        super.update(deltaTime) // Call base update if needed
+
+        const transform = this.getComponent<TransformComponent>("transform")
+        if (!transform || !this.headlight || !this.headlight.target) return
+
+        // Get current position and orientation
+        const currentPosition = transform.getPosition()
+        const currentQuaternion = transform.getQuaternion()
+
+        // Calculate forward vector based on quaternion
+        this._forwardVector.set(0, 0, 1).applyQuaternion(currentQuaternion)
+
+        // Calculate target position slightly below and ahead of the car
+        const targetDistance = 30.0 // How far ahead the light should point
+        this._targetPosition.copy(currentPosition).addScaledVector(this._forwardVector, targetDistance).add(new THREE.Vector3(0, -0.5, 0)) // Adjust height slightly lower than headlight position
+
+        // Update the target's world position
+        this.headlight.target.position.copy(this._targetPosition)
+        this.headlight.target.updateMatrixWorld() // Ensure target matrix is updated
+
+        // Optional: Update wheel rotation etc. if not handled elsewhere
+        // this.updateWheelRotation(deltaTime);
     }
 
     private updateWheelRotation(deltaTime: number): void {

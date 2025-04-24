@@ -4,6 +4,9 @@ export class Time {
     private deltaTime: number = 0
     private timeScale: number = 1
     private elapsedTime: number = 0
+    private fixedDeltaTime: number = 1 / 60 // 고정 델타타임 (60fps 기준)
+    private accumulatedTime: number = 0
+    private fixedTimeStep: boolean = true // 고정 타임스텝 사용 여부
 
     private constructor() {
         this.lastTime = performance.now()
@@ -22,15 +25,26 @@ export class Time {
 
         // Handle potential initial large deltaTime after loading/initialization
         if (dt > 0.1) {
-            // If delta time is larger than 100ms, likely the first frame after a pause
-            dt = 1 / 60 // Reset to a reasonable value (e.g., 1/60th of a second)
+            // 100ms보다 큰 틱 발생 시 (로딩 후 첫 프레임 등) 적절한 값으로 제한
+            dt = Time.instance.fixedDeltaTime
         }
 
-        // Add a minimum delta time clamp to prevent division by zero or very small numbers
-        dt = Math.max(1 / 1000, dt) // Ensure dt is at least 1ms
+        // 최소 델타타임 제한 (0으로 나누기 방지)
+        dt = Math.max(0.001, dt)
 
-        // Apply time scale
-        Time.instance.deltaTime = dt * Time.instance.timeScale
+        // 타임스케일 적용
+        const scaledDt = dt * Time.instance.timeScale
+
+        if (Time.instance.fixedTimeStep) {
+            // 고정 타임스텝 사용 시 누적 시간 계산
+            Time.instance.accumulatedTime += scaledDt
+            // 고정 델타타임 사용
+            Time.instance.deltaTime = Time.instance.fixedDeltaTime
+        } else {
+            // 가변 타임스텝 사용
+            Time.instance.deltaTime = scaledDt
+        }
+
         Time.instance.elapsedTime += Time.instance.deltaTime
         Time.instance.lastTime = currentTime
     }
@@ -49,5 +63,19 @@ export class Time {
 
     public static getElapsedTime(): number {
         return Time.instance.elapsedTime
+    }
+
+    public static shouldRunFixedUpdate(): boolean {
+        if (!Time.instance.fixedTimeStep) return true
+
+        if (Time.instance.accumulatedTime >= Time.instance.fixedDeltaTime) {
+            Time.instance.accumulatedTime -= Time.instance.fixedDeltaTime
+            return true
+        }
+        return false
+    }
+
+    public static setFixedTimeStep(enabled: boolean): void {
+        Time.instance.fixedTimeStep = enabled
     }
 }

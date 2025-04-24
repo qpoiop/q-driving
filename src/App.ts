@@ -123,6 +123,15 @@ export class App {
             console.log("Initializing app...")
             this.loadingScreen.show()
 
+            // 모바일 기기 감지 및 최적화 설정
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+            if (isMobile) {
+                console.log("모바일 기기 감지: 성능 최적화 설정 적용")
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+                // 모바일 환경에서 그림자 품질 낮춤
+                this.renderer.shadowMap.type = THREE.BasicShadowMap
+            }
+
             await this.engine.initialize(container)
             console.log("Engine initialized")
             this.loadingScreen.updateProgress(0.2)

@@ -51,8 +51,16 @@ export class Engine {
 
             // 렌더러 설정
             this.renderer.setSize(window.innerWidth, window.innerHeight)
-            this.renderer.setPixelRatio(window.devicePixelRatio)
+            this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
             container.appendChild(this.renderer.domElement)
+
+            // 모바일 환경 화면 크기 대응을 위한 리사이즈 이벤트 리스너
+            window.addEventListener("resize", () => {
+                this.renderer.setSize(window.innerWidth, window.innerHeight)
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+                this.camera.aspect = window.innerWidth / window.innerHeight
+                this.camera.updateProjectionMatrix()
+            })
 
             // 시스템 매니저 초기화
             await this.systemManager.initialize()
@@ -77,16 +85,19 @@ export class Engine {
         // 시간 업데이트
         Time.update()
 
-        // 시스템 업데이트
-        this.systemManager.update(Time.getDeltaTime())
+        // 고정 타임스텝 기반 업데이트
+        if (Time.shouldRunFixedUpdate()) {
+            // 시스템 업데이트
+            this.systemManager.update(Time.getDeltaTime())
 
-        // 엔티티 업데이트
-        this.entityManager.update(Time.getDeltaTime())
+            // 엔티티 업데이트
+            this.entityManager.update(Time.getDeltaTime())
 
-        // 카메라 업데이트
-        this.cameraController.update(Time.getDeltaTime())
+            // 카메라 업데이트
+            this.cameraController.update(Time.getDeltaTime())
+        }
 
-        // 렌더링
+        // 렌더링 (매 프레임 실행)
         if (this.scene && this.camera) {
             this.renderer.render(this.scene, this.camera)
         } else {
