@@ -20,7 +20,7 @@ export class Joystick {
         this.container = document.createElement("div")
         this.container.style.position = "absolute"
         this.container.style.bottom = "20px"
-        this.container.style.left = "20px"
+        this.container.style.right = "20px"
         this.container.style.width = "100px"
         this.container.style.height = "100px"
         this.container.style.borderRadius = "50%"
