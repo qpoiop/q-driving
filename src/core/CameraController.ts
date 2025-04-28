@@ -108,8 +108,8 @@ export class CameraController {
     }
 
     public onWindowResize(): void {
-        this.camera.aspect = window.innerWidth / window.innerHeight
-        this.camera.updateProjectionMatrix()
+        // App 클래스에서 이미 카메라 비율과 투영 행렬을 업데이트하므로 여기서는 필요 없음
+        // 향후 확장을 위해 메서드는 유지
     }
 
     public getCamera(): THREE.PerspectiveCamera {

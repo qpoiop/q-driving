@@ -82,7 +82,16 @@ export class App {
     private onWindowResize(): void {
         const width = window.innerWidth
         const height = window.innerHeight
+
+        // 렌더러 크기 및 픽셀 비율 조정
         this.renderer.setSize(width, height)
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+
+        // 카메라 비율 및 투영 행렬 업데이트
+        this.camera.aspect = width / height
+        this.camera.updateProjectionMatrix()
+
+        // 카메라 컨트롤러에도 리사이즈 이벤트 전달
         this.engine.getCameraController().onWindowResize()
     }
 

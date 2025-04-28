@@ -54,13 +54,8 @@ export class Engine {
             this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
             container.appendChild(this.renderer.domElement)
 
-            // 모바일 환경 화면 크기 대응을 위한 리사이즈 이벤트 리스너
-            window.addEventListener("resize", () => {
-                this.renderer.setSize(window.innerWidth, window.innerHeight)
-                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-                this.camera.aspect = window.innerWidth / window.innerHeight
-                this.camera.updateProjectionMatrix()
-            })
+            // 모바일 환경 화면 크기 대응을 위한 리사이즈 이벤트 리스너 제거
+            // App 클래스에서 일괄 처리하도록 수정
 
             // 시스템 매니저 초기화
             await this.systemManager.initialize()
