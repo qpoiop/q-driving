@@ -37,6 +37,7 @@ const TRANSPARENCY_OPACITY = 0.2 // More transparent
 const TRANSPARENCY_FADE_DISTANCE = 15
 const ALPHA_DAMPING_FACTOR = 0.05 // Damping factor for fade in/out (adjust speed)
 const ALPHA_THRESHOLD = 0.01 // Threshold to consider alpha update complete
+const TRANSPARENCY_SPHERE_RADIUS = 5.0 // Radius around camera to check for transparency
 
 // Define a structural type for environment entities
 interface EnvironmentEntityType {
@@ -60,9 +61,9 @@ const ENTITY_GENERATION_CONFIG = {
     },
     ROCK: {
         class: Rock as unknown as EnvironmentEntityType,
-        probability: 0.2, // Reduced rock probability
-        scaleMin: 0.6, // Smaller rocks
-        scaleRange: 0.5,
+        probability: 0.2,
+        scaleMin: 0.4, // Reduced minimum size
+        scaleRange: 0.3, // Reduced size variation range
     },
     BUSH: {
         class: Bush as unknown as EnvironmentEntityType,
@@ -122,6 +123,7 @@ export class EnvironmentManager {
     private tempVecCam = new THREE.Vector3()
     private tempVecCar = new THREE.Vector3()
     private tempVecDir = new THREE.Vector3()
+    private tempVecObj = new THREE.Vector3() // Added for object position check
 
     private constructor(terrainService: ITerrainService, resourceManager: ResourceManager, scene: THREE.Scene) {
         this.terrainService = terrainService
@@ -280,101 +282,125 @@ export class EnvironmentManager {
 
     // --- TRANSPARENCY & FADING ---
     private handleTransparency(cameraPosition: THREE.Vector3, currentCarPosition: THREE.Vector3 | null): void {
-        // Reduce frequency of raycasting for performance
-        if (this.frameCounter % 10 !== 0) {
+        // Reduce frequency for performance
+        if (this.frameCounter % 5 !== 0) {
+            // Check slightly more often than before
             return
         }
 
         const currentlyOccludedInstanceIds = new Set<string>() // Store as "meshUUID_instanceId"
 
-        if (currentCarPosition && this.objectsToRaycast.length > 0) {
+        if (currentCarPosition) {
             this.tempVecCam.copy(cameraPosition)
             this.tempVecCar.copy(currentCarPosition)
-            const distanceCamCar = this.tempVecCam.distanceTo(this.tempVecCar)
+            const camToCarSq = this.tempVecCam.distanceToSquared(this.tempVecCar)
+            this.tempVecDir.subVectors(this.tempVecCar, this.tempVecCam) // Direction from camera to car
 
-            if (distanceCamCar >= 1.0 && distanceCamCar <= TRANSPARENCY_FADE_DISTANCE) {
-                this.tempVecDir.subVectors(this.tempVecCar, this.tempVecCam).normalize()
-                this.raycaster.set(this.tempVecCam, this.tempVecDir)
-                this.raycaster.near = 0.5
-                this.raycaster.far = distanceCamCar
+            // Iterate through all managed objects
+            this.managedObjects.forEach((objects, entityClass) => {
+                const meshes = entityClass.getInstancedMeshes()
+                if (!meshes || meshes.length === 0) return
+                const meshUUID = meshes[0].uuid // Assume all meshes for a class share UUID for alpha state key
 
-                const intersects = this.raycaster.intersectObjects(this.objectsToRaycast, false)
+                objects.forEach(obj => {
+                    if (!obj.isVisible) return // Skip objects outside LOD
 
-                intersects.forEach(intersect => {
-                    if (intersect.object instanceof THREE.InstancedMesh && intersect.instanceId !== undefined) {
-                        const meshUUID = intersect.object.uuid
-                        const instanceId = intersect.instanceId
-                        const key = `${meshUUID}_${instanceId}`
+                    this.tempVecObj.copy(obj.position)
+                    const camToObjSq = this.tempVecCam.distanceToSquared(this.tempVecObj)
+
+                    let shouldBeTransparent = false
+
+                    // Revised condition: Check if the object is closer than the car AND within the fade distance limit
+                    if (camToObjSq < camToCarSq && camToObjSq < TRANSPARENCY_FADE_DISTANCE * TRANSPARENCY_FADE_DISTANCE) {
+                        // Further check if the object is generally in the direction from camera to car
+                        const camToObjDir = this.tempVecObj.clone().sub(this.tempVecCam) // Use clone to avoid modifying tempVecObj
+                        // tempVecDir is already calculated as car - camera
+                        if (camToObjDir.dot(this.tempVecDir) > 0) {
+                            // Check if object is in front (positive dot product)
+                            shouldBeTransparent = true
+                        }
+                    }
+
+                    const instanceId = obj.entity.instanceId
+                    const key = `${meshUUID}_${instanceId}`
+
+                    if (shouldBeTransparent) {
                         currentlyOccludedInstanceIds.add(key)
-                        // Mark this specific instance for fade (to transparent value)
-                        const managedObj = this.findManagedObjectByInstanceId(intersect.object as THREE.InstancedMesh, instanceId)
-                        if (managedObj) {
-                            this.updateAlphaState(managedObj, TRANSPARENCY_OPACITY)
+                        this.updateAlphaState(obj, TRANSPARENCY_OPACITY)
+                    } else {
+                        // Only fade back to opaque if it was previously transparent
+                        const alphaState = this.alphaStates.get(meshUUID)?.get(instanceId)
+                        if (alphaState && alphaState.targetAlpha !== 1.0) {
+                            this.updateAlphaState(obj, 1.0)
                         }
                     }
                 })
-            }
-        }
+            })
 
-        // Check previously faded instances - if not occluded now, mark for fade back to opaque (1.0)
-        this.alphaStates.forEach((instanceMap, meshUUID) => {
-            instanceMap.forEach((state, instanceId) => {
-                const key = `${meshUUID}_${instanceId}`
-                // If it was faded due to occlusion (target < 1) but is no longer occluded
-                if (state.targetAlpha < 1.0 && !currentlyOccludedInstanceIds.has(key)) {
-                    const managedObj = this.findManagedObjectByInstanceId(meshUUID, instanceId)
-                    if (managedObj) {
-                        // If it wasn't marked for fade-out by regeneration, restore it
-                        if (managedObj.targetAlpha !== 0.0) {
-                            this.updateAlphaState(managedObj, 1.0) // Mark to fade back to opaque
+            // Optional: Fade out objects that were transparent last frame but aren't anymore
+            // (The logic inside the loop already handles setting targetAlpha to 1.0)
+            // You might still need to clean up alphaStates for objects that are removed entirely,
+            // but the current updateAlphaState/updateInstanceAlphas should handle the fade-out.
+        } else {
+            // No car position, ensure everything fades back to opaque
+            this.alphaStates.forEach((instanceMap, meshUUID) => {
+                instanceMap.forEach((state, instanceId) => {
+                    if (state.targetAlpha !== 1.0) {
+                        const obj = this.findManagedObjectByInstanceId(meshUUID, instanceId)
+                        if (obj) {
+                            this.updateAlphaState(obj, 1.0)
                         }
                     }
-                }
+                })
             })
-        })
+        }
     }
 
-    // Helper to find ManagedEnvironmentObject by mesh and instanceId
-    private findManagedObjectByInstanceId(meshOrUUID: THREE.InstancedMesh | string, instanceId: number): ManagedEnvironmentObject | undefined {
-        const meshUUID = typeof meshOrUUID === "string" ? meshOrUUID : meshOrUUID.uuid
+    // Helper to find the ManagedEnvironmentObject based on mesh UUID and instance ID
+    // This implementation assumes mesh UUID is consistent for an entity class.
+    private findManagedObjectByInstanceId(meshUUID: string, instanceId: number): ManagedEnvironmentObject | undefined {
         for (const [entityClass, objects] of this.managedObjects.entries()) {
-            // Quick check if this entity type even uses this mesh UUID
-            const usesMesh = entityClass.getInstancedMeshes().some(mesh => mesh.uuid === meshUUID)
-            if (usesMesh) {
-                // Find the object with the matching instance ID *within this type*
-                // This assumes instance IDs are unique *within* an entity type's array
-                if (instanceId < objects.length) {
-                    const obj = objects[instanceId]
-                    // Double check the entity instanceId matches (should always)
-                    if (obj && obj.entity.instanceId === instanceId) {
-                        return obj
-                    }
-                }
+            const meshes = entityClass.getInstancedMeshes()
+            if (meshes && meshes.length > 0 && meshes[0].uuid === meshUUID) {
+                // Found the correct entity class, now find the instance
+                return objects.find(obj => obj.entity.instanceId === instanceId)
             }
         }
         return undefined
     }
 
+    /**
+     * Updates the target alpha state for a managed object.
+     * This function ensures the alpha state map is correctly maintained.
+     * @param obj The managed object to update.
+     * @param newTargetAlpha The desired target alpha (e.g., 0.2 for transparent, 1.0 for opaque).
+     */
     private updateAlphaState(obj: ManagedEnvironmentObject, newTargetAlpha: number): void {
-        if (obj.targetAlpha === newTargetAlpha && obj.currentAlpha === newTargetAlpha) return // Already at target
+        const meshes = obj.entityClass.getInstancedMeshes()
+        if (!meshes || meshes.length === 0) return
+        const meshUUID = meshes[0].uuid // Use the first mesh's UUID as the key
+        const instanceId = obj.entity.instanceId
 
+        if (!this.alphaStates.has(meshUUID)) {
+            this.alphaStates.set(meshUUID, new Map<number, AlphaState>())
+        }
+        const instanceMap = this.alphaStates.get(meshUUID)!
+
+        let state = instanceMap.get(instanceId)
+
+        if (!state) {
+            // Initialize state if it doesn't exist
+            state = { currentAlpha: obj.currentAlpha, targetAlpha: newTargetAlpha, needsUpdate: true }
+            instanceMap.set(instanceId, state)
+        } else {
+            // Update target alpha only if it changed
+            if (state.targetAlpha !== newTargetAlpha) {
+                state.targetAlpha = newTargetAlpha
+                state.needsUpdate = true
+            }
+        }
+        // Also update the object's immediate targetAlpha for reference
         obj.targetAlpha = newTargetAlpha
-
-        // Update the central alpha state map for tracking
-        obj.entityClass.getInstancedMeshes().forEach(mesh => {
-            if (!this.alphaStates.has(mesh.uuid)) {
-                this.alphaStates.set(mesh.uuid, new Map())
-            }
-            const instanceMap = this.alphaStates.get(mesh.uuid)!
-            const state = instanceMap.get(obj.entity.instanceId) || {
-                currentAlpha: obj.currentAlpha,
-                targetAlpha: obj.targetAlpha,
-                needsUpdate: true,
-            }
-            state.targetAlpha = newTargetAlpha
-            state.needsUpdate = true // Mark that alpha needs interpolation
-            instanceMap.set(obj.entity.instanceId, state)
-        })
     }
 
     private updateInstanceAlphas(deltaTime: number): void {
