@@ -10,5 +10,8 @@
 
 ### inplaying captures
 
-![alt text](/public/assets/image_day.png)  
-![alt text](/public/assets/image_nignt.png)
+![alt text](/public/assets/image.png)
+
+<!-- ![alt text](/public/assets/image_nignt.png) -->
+
+image.png

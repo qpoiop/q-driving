@@ -15,7 +15,7 @@ export class CameraController {
     private mode: CameraMode = CameraMode.FREE
     private smoothFactor: number = 0.25
     private lookAtOffset: THREE.Vector3 = new THREE.Vector3(0, 1, 0)
-    private followOffset: THREE.Vector3 = new THREE.Vector3(0, 2, -4)
+    private followOffset: THREE.Vector3 = new THREE.Vector3(0, 3, -8)
     private currentLookAt: THREE.Vector3 = new THREE.Vector3()
     private isDay: boolean = true
 
